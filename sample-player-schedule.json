@@ -1,0 +1,50 @@
+[{
+        "coach_name": "Ahmed Fakhry",
+        "day": "Monday",
+        "start_time": "14:30",
+        "end_time": "15:15",
+        "court": "Court 1",
+        "level": 1
+    },
+    {
+        "coach_name": "Ahmed Fakhry",
+        "day": "Monday",
+        "start_time": "15:30",
+        "end_time": "16:15",
+        "court": "Court 1",
+        "level": 2
+    },
+    {
+        "coach_name": "Ahmed Fakhry",
+        "day": "Monday",
+        "start_time": "16:30",
+        "end_time": "17:15",
+        "court": "Court 1",
+        "level": 3
+    },
+    {
+        "coach_name": "Ahmed Mahrous",
+        "day": "Monday",
+        "start_time": "14:30",
+        "end_time": "15:15",
+        "court": "Court 2",
+        "level": 2
+    },
+    {
+        "coach_name": "Alaa Taha",
+        "day": "Tuesday",
+        "start_time": "14:30",
+        "end_time": "15:15",
+        "court": "Court 1",
+        "level": 1
+    },
+    {
+        "coach_name": "Abdelrahman Dahy",
+        "day": "Tuesday",
+        "start_time": "14:30",
+        "end_time": "15:15",
+        "court": "Court 2",
+        "level": 2,
+        "student": "Ahmed Ali"
+    }
+]

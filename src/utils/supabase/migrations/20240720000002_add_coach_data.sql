@@ -40,7 +40,7 @@ DECLARE
   alaa_taha_id UUID;
   ahmed_maher_id UUID;
   omar_zaki_id UUID;
-  hussien_amr_id UUID;
+  abdelrahman_dahy_id UUID;
 BEGIN
   -- Get branch IDs
   SELECT id INTO new_cairo_rbs_id FROM branches WHERE name = 'New Cairo - Royal British School';
@@ -148,18 +148,18 @@ BEGIN
     VALUES (omar_zaki_id, maadi_club_one_id, 'Saturday', '10:00', '21:30', 45);
   END IF;
   
-  -- Hussein Amr
-  IF NOT EXISTS (SELECT 1 FROM users WHERE email = 'hussien.amr@ramyashour.com') THEN
+  -- Abdelrahman Dahy
+  IF NOT EXISTS (SELECT 1 FROM users WHERE email = 'abdelrahman.dahy@ramyashour.com') THEN
     INSERT INTO users (id, email, full_name, name, role, token_identifier, created_at)
-    VALUES (uuid_generate_v4(), 'hussien.amr@ramyashour.com', 'Hussein Amr', 'Hussein Amr', 'coach', uuid_generate_v4(), NOW())
-    RETURNING id INTO hussien_amr_id;
+    VALUES (uuid_generate_v4(), 'abdelrahman.dahy@ramyashour.com', 'Abdelrahman Dahy', 'Abdelrahman Dahy', 'coach', uuid_generate_v4(), NOW())
+    RETURNING id INTO abdelrahman_dahy_id;
     
     INSERT INTO coaches (id, bio, specialization, years_experience, recommended_level)
-    VALUES (hussien_amr_id, 'Beginner-focused coach with patience and methodical approach', 'Beginner Development', 4, 1);
+    VALUES (abdelrahman_dahy_id, 'Beginner-focused coach with patience and methodical approach', 'Beginner Development', 4, 1);
     
-    -- Hussein Amr schedule - Wednesday
+    -- Abdelrahman Dahy schedule - Wednesday
     INSERT INTO coach_schedules (coach_id, branch_id, day_of_week, start_time, end_time, session_duration)
-    VALUES (hussien_amr_id, obour_golf_id, 'Wednesday', '15:30', '21:30', 45);
+    VALUES (abdelrahman_dahy_id, obour_golf_id, 'Wednesday', '15:30', '21:30', 45);
   END IF;
   
 END $$;

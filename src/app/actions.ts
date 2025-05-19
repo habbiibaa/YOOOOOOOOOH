@@ -15,6 +15,13 @@ interface UserData {
   approved: boolean;
 }
 
+interface PlayerProfileResult {
+  error?: string;
+  recommendedLevel: number | null;
+  shouldBookAssessment: boolean;
+  needsVideoReview: boolean;
+}
+
 // Helper function to verify user exists in auth.users without admin privileges
 async function verifyAuthUser(supabase: SupabaseClient, userId: string) {
   const maxRetries = 5;
@@ -62,231 +69,72 @@ async function verifyAuthUser(supabase: SupabaseClient, userId: string) {
 // Helper function to create a user profile in the database
 async function createUserProfile(supabase: SupabaseClient, user: any, userData: UserData) {
   const { fullName, email, role, approved } = userData;
-
-  console.log(
-    `Attempting to create user profile for ${email} with ID ${user.id}`,
-  );
-
-  const maxRetries = 7;
-  let retryCount = 0;
   let success = false;
-  let updateError: any = null;  // Changed from null to any to fix type error
-
-  const adminSupabase = supabase;
+  let updateError: Error | null = null;
+  const maxRetries = 3;
+  let retryCount = 0;
 
   while (retryCount < maxRetries && !success) {
     try {
-      if (retryCount > 0) {
-        const delay = Math.pow(2, retryCount) * 500;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        console.log(
-          `Retry attempt ${retryCount} after ${delay}ms delay for user ${user.id}`,
-        );
-      }
-
-      const { data: existingUser, error: checkError } = await adminSupabase
-        .from("users")
-        .select("id")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (checkError) {
-        console.error(`Error checking if user ${user.id} exists:`, checkError);
-      } else if (existingUser) {
-        console.log(
-          `User ${user.id} already exists in users table, skipping creation`,
-        );
-        success = true;
-        break;
-      }
-
-      console.log("Inserting user data:", {
+      // Create or update user record
+      const { error: userError } = await supabase.from("users").upsert({
         id: user.id,
+        email: email || user.email,
         full_name: fullName,
-        email: email,
-        role: role
+        role,
+        approved,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       });
 
-      const { error: insertError } = await adminSupabase.from("users").upsert(
-        {
-          id: user.id,
-          full_name: fullName,
-          email: email,
-          role: role,
-          approved: approved,
-        },
-        { onConflict: "id" },
-      );
-
-      if (insertError) {
+      if (userError) {
         console.error(
-          `Insert attempt ${retryCount + 1} failed for user ${user.id}:`,
-          {
-            code: insertError.code,
-            message: insertError.message,
-            details: insertError.details,
-            hint: insertError.hint,
-            query: insertError.query,
-          },
+          `User record update attempt ${retryCount + 1} failed:`,
+          userError,
         );
-        updateError = insertError;
-      } else {
-        console.log(
-          `User profile created successfully on attempt ${retryCount + 1} for user ${user.id}`,
-        );
-        
-        // Create role-specific profile entry
-        try {
-          if (role === "player") {
-            // Create player profile
-            const { error: playerError } = await adminSupabase
-              .from("players")
-              .upsert(
-                {
-                  id: user.id,
-                  skill_level: "Beginner",
-                  years_playing: 0,
-                  goals: "Improve my squash skills"
-                },
-                { onConflict: "id" }
-              );
-            
-            if (playerError) {
-              console.error(`Error creating player profile for user ${user.id}:`, playerError);
-            } else {
-              console.log(`Player profile created successfully for user ${user.id}`);
-            }
-          } else if (role === "coach") {
-            // Create coach profile
-            const { error: coachError } = await adminSupabase
-              .from("coaches")
-              .upsert(
-                {
-                  id: user.id,
-                  name: fullName,
-                  specialties: ["Squash Training"],
-                  available_levels: ["Beginner", "Intermediate", "Advanced"],
-                  rating: 5.0
-                },
-                { onConflict: "id" }
-              );
-            
-            if (coachError) {
-              console.error(`Error creating coach profile for user ${user.id}:`, coachError);
-            } else {
-              console.log(`Coach profile created successfully for user ${user.id}`);
-              
-              // Get default branch (Royal British School) or create one if it doesn't exist
-              let branchId;
-              
-              // First check if the branch exists
-              const { data: branchData, error: branchError } = await adminSupabase
-                .from("branches")
-                .select("id")
-                .eq("name", "Royal British School")
-                .maybeSingle();
-              
-              if (branchError || !branchData) {
-                // Create default branch if it doesn't exist
-                const newBranchId = uuidv4();
-                const { error: createBranchError } = await adminSupabase
-                  .from("branches")
-                  .insert({
-                    id: newBranchId,
-                    name: "Royal British School",
-                    location: "New Cairo",
-                    address: "Royal British School, New Cairo",
-                    is_members_only: false
-                  });
-                
-                if (createBranchError) {
-                  console.error(`Error creating branch for coach ${user.id}:`, createBranchError);
-                } else {
-                  branchId = newBranchId;
-                }
-              } else {
-                branchId = branchData.id;
-              }
-              
-              if (branchId) {
-                // Create default coach schedule (Monday and Wednesday 4:30 PM - 8:30 PM)
-                const scheduleEntries = [
-                  {
-                    id: uuidv4(),
-                    coach_id: user.id,
-                    branch_id: branchId,
-                    day_of_week: "Monday",
-                    start_time: "16:30",
-                    end_time: "20:30",
-                    session_duration: 45
-                  },
-                  {
-                    id: uuidv4(),
-                    coach_id: user.id,
-                    branch_id: branchId,
-                    day_of_week: "Wednesday",
-                    start_time: "16:30",
-                    end_time: "20:30",
-                    session_duration: 45
-                  }
-                ];
-                
-                for (const schedule of scheduleEntries) {
-                  const { error: scheduleError } = await adminSupabase
-                    .from("coach_schedules")
-                    .insert(schedule);
-                  
-                  if (scheduleError) {
-                    console.error(`Error creating schedule for coach ${user.id}:`, scheduleError);
-                  } else {
-                    console.log(`Schedule created successfully for coach ${user.id}`);
-                  }
-                }
-              }
-            }
-          }
-          
-          // Create general profile entry
-          const { error: profileError } = await adminSupabase
-            .from("profiles")
-            .upsert(
-              {
-                id: uuidv4(),
-                user_id: user.id,
-                name: fullName,
-                type: "primary",
-                avatar_url: null,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              },
-              { onConflict: "id" }
-            );
-          
-          if (profileError) {
-            console.error(`Error creating profile for user ${user.id}:`, profileError);
-          } else {
-            console.log(`Profile created successfully for user ${user.id}`);
-          }
-          
-        } catch (roleError) {
-          console.error(`Error creating role-specific profile for user ${user.id}:`, roleError);
-          // Don't fail the overall operation if role-specific profile creation fails
-        }
-        
-        success = true;
-        updateError = null;
+        updateError = userError;
+        retryCount++;
+        continue;
       }
-    } catch (attemptErr) {
-      console.error(
-        `Exception during user creation attempt ${retryCount + 1} for user ${user.id}:`,
-        attemptErr,
-      );
-      updateError = attemptErr || {
-        message: "Exception during user creation: Unknown error"
-      };
-    }
 
-    retryCount++;
+      // Create role-specific profile entry
+      if (role === "player") {
+        // Create player profile
+        const { error: playerError } = await supabase
+          .from("players")
+          .upsert(
+            {
+              id: user.id, // Use the user's ID as the player's ID
+              user_id: user.id,
+              email: email || user.email,
+              full_name: fullName,
+              skill_level: "Beginner",
+              years_playing: 0,
+              goals: "Improve my squash skills",
+              level: 1,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            },
+            { onConflict: "user_id" }
+          );
+        
+        if (playerError) {
+          console.error(`Error creating player profile for user ${user.id}:`, playerError);
+          updateError = playerError;
+          retryCount++;
+          continue;
+        }
+      }
+
+      success = true;
+    } catch (error) {
+      console.error(
+        `Unexpected error in createUserProfile attempt ${retryCount + 1}:`,
+        error,
+      );
+      updateError = error instanceof Error ? error : new Error(String(error));
+      retryCount++;
+    }
   }
 
   return { success, error: updateError };
@@ -903,17 +751,6 @@ const coachesDataList: Coach[] = [
     ]
   },
   {
-    name: "Ahmed Magdy",
-    schedules: [
-      {
-        dayOfWeek: "Monday",
-        startTime: "16:30",
-        endTime: "21:45",
-        sessionDuration: 45
-      }
-    ]
-  },
-  {
     name: "Alaa Taha",
     schedules: [
       {
@@ -965,8 +802,14 @@ const coachesDataList: Coach[] = [
     ]
   },
   {
-    name: "Hussein Amr",
+    name: "Abdelrahman Dahy",
     schedules: [
+      {
+        dayOfWeek: "Monday",
+        startTime: "16:30",
+        endTime: "21:45",
+        sessionDuration: 45
+      },
       {
         dayOfWeek: "Wednesday",
         startTime: "15:30",
@@ -1058,29 +901,44 @@ export async function initializeCoachesAndSchedules() {
               throw new Error(`Email ${email} already exists for another user`);
             }
             
-            // Create coach user
-            const newCoachId = uuidv4(); // Generate a UUID for the coach
-            const { data: newUser, error: createUserError } = await supabase
+            // First create an auth user
+            const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+              email: email,
+              password: `Coach${Math.floor(1000 + Math.random() * 9000)}!`,
+              email_confirm: true,
+              user_metadata: {
+                full_name: coachData.name,
+                role: "coach"
+              }
+            });
+            
+            if (authError) {
+              console.error(`Error creating auth user for coach ${coachData.name}:`, authError);
+              throw new Error(`Failed to create auth user: ${authError.message}`);
+            }
+            
+            if (!authData?.user?.id) {
+              throw new Error(`No user ID returned for coach ${coachData.name}`);
+            }
+            
+            // Use the auth user ID for the user record
+            coachId = authData.user.id;
+            
+            // Now create user record with auth ID
+            const { error: createUserError } = await supabase
               .from("users")
               .insert({
-                id: newCoachId,
+                id: coachId,
                 full_name: coachData.name,
                 role: "coach",
                 email: email
-              })
-              .select("id")
-              .single();
+              });
               
             if (createUserError) {
               console.error(`Error creating user for coach ${coachData.name}:`, createUserError.message || createUserError.code || JSON.stringify(createUserError));
               throw new Error(`Failed to create user: ${createUserError.message || JSON.stringify(createUserError)}`);
             }
             
-            if (!newUser || !newUser.id) {
-              throw new Error(`No user ID returned for coach ${coachData.name}`);
-            }
-            
-            coachId = newUser.id;
             console.log(`Created new coach user with ID: ${coachId}`);
             
             // Create coach record
@@ -1137,9 +995,11 @@ export async function initializeCoachesAndSchedules() {
             }
             
             // Create coach schedule
+            const scheduleId = uuidv4(); // Generate unique ID for the schedule
             const { error: createScheduleError } = await supabase
               .from("coach_schedules")
               .insert({
+                id: scheduleId, // Add ID field
                 coach_id: coachId,
                 branch_id: branchId,
                 day_of_week: schedule.dayOfWeek,
@@ -1206,6 +1066,7 @@ export async function generateAvailableSessions(startDate: Date, daysToGenerate:
   
   // Define the type for session objects
   type SessionToCreate = {
+    id?: string; // Make ID optional
     coach_id: string;
     branch_id: string;
     session_date: string;
@@ -1289,9 +1150,15 @@ export async function generateAvailableSessions(startDate: Date, daysToGenerate:
     const batch = sessionsToCreate.slice(i, i + batchSize);
     
     if (batch.length > 0) {
+      // Ensure each session has a unique ID
+      const batchWithIds = batch.map(session => ({
+        ...session,
+        id: session.id || uuidv4() // Use existing ID or generate one if missing
+      }));
+      
       const { error: createSessionsError } = await supabase
         .from("coach_sessions")
-        .insert(batch);
+        .insert(batchWithIds);
         
       if (createSessionsError) {
         console.error("Error creating sessions batch:", createSessionsError);
@@ -1302,154 +1169,127 @@ export async function generateAvailableSessions(startDate: Date, daysToGenerate:
   return { createdSessions: sessionsToCreate.length };
 }
 
-export async function checkAndCreatePlayerProfile(userId: string, email: string, name: string, hasPlayedSquash: boolean, yearsPlaying: number) {
-  "use server";
-  const supabase = await createClient();
-  
-  // Check if user exists in users table
-  const { data: existingUser, error: userCheckError } = await supabase
-    .from("users")
-    .select("id, role")
-    .eq("id", userId)
-    .single();
-    
-  if (userCheckError && userCheckError.code !== "PGRST116") {
-    console.error("Error checking user:", userCheckError);
-    return { error: "Error checking user" };
-  }
-  
-  // Create or update user
-  if (!existingUser) {
-    const { error: createUserError } = await supabase
-      .from("users")
+export async function checkAndCreatePlayerProfile(
+  userId: string,
+  hasPlayedBefore: boolean,
+  yearsPlaying: number,
+  hasVideo?: boolean,
+  videoUrl?: string,
+  videoNotes?: string
+) {
+  try {
+    const supabase = await createClient();
+
+    // Get user data
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('email, full_name')
+      .eq('id', userId)
+      .single();
+
+    if (userError) throw userError;
+
+    // Check if player profile exists
+    const { data: existingProfile, error: profileError } = await supabase
+      .from('players')
+      .select('*')
+      .eq('id', userId)  // Changed from user_id to id
+      .single();
+
+    if (profileError && profileError.code !== 'PGRST116') {
+      throw profileError;
+    }
+
+    if (existingProfile) {
+      return {
+        profile: existingProfile,
+        needsAssessment: false,
+        needsVideoReview: false
+      };
+    }
+
+    // Determine level and assessment needs
+    let level = 1;
+    let needsAssessment = false;
+    let needsVideoReview = false;
+
+    if (hasPlayedBefore) {
+      if (hasVideo && videoUrl) {
+        // If they have a video, queue it for review
+        needsVideoReview = true;
+      } else if (yearsPlaying >= 0.5) { // 6 months or more
+        // If they have significant experience but no video, require assessment
+        needsAssessment = true;
+      }
+    }
+
+    // Create player profile
+    const { data: playerProfile, error: createError } = await supabase
+      .from('players')
       .insert({
-        id: userId,
-        email,
-        full_name: name,
-        role: "player"
-      });
-      
-    if (createUserError) {
-      console.error("Error creating user:", createUserError);
-      return { error: "Error creating user profile" };
+        id: userId, // Use the user's ID as the player's ID
+        user_id: userId,
+        email: userData.email,
+        full_name: userData.full_name,
+        level: level,
+        skill_level: 'Beginner',
+        years_playing: yearsPlaying || 0,
+        goals: 'Improve squash skills',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      // If we get a duplicate key error, try to fetch the existing profile
+      if (createError.code === '23505') {
+        const { data: existingPlayer, error: fetchError } = await supabase
+          .from('players')
+          .select('*')
+          .eq('id', userId)
+          .single();
+          
+        if (fetchError) throw fetchError;
+        
+        return {
+          profile: existingPlayer,
+          needsAssessment: false,
+          needsVideoReview: false
+        };
+      }
+      throw createError;
     }
-  } else if (existingUser.role !== "player") {
-    const { error: updateUserError } = await supabase
-      .from("users")
-      .update({ role: "player" })
-      .eq("id", userId);
-      
-    if (updateUserError) {
-      console.error("Error updating user role:", updateUserError);
-      return { error: "Error updating user role" };
+
+    // If video review is needed, create video review request
+    if (needsVideoReview && videoUrl) {
+      const { error: videoError } = await supabase
+        .from('video_reviews')
+        .insert({
+          player_id: userId,
+          video_url: videoUrl,
+          notes: videoNotes || '',
+          status: 'pending'
+        });
+
+      if (videoError) throw videoError;
     }
+
+    return {
+      profile: playerProfile,
+      needsAssessment,
+      needsVideoReview
+    };
+  } catch (error) {
+    console.error('Error creating player profile:', error);
+    throw error;
   }
-  
-  // Check if player profile exists
-  const { data: existingPlayer, error: playerCheckError } = await supabase
-    .from("players")
-    .select("id")
-    .eq("id", userId)
-    .single();
-    
-  if (playerCheckError && playerCheckError.code !== "PGRST116") {
-    console.error("Error checking player profile:", playerCheckError);
-    return { error: "Error checking player profile" };
-  }
-  
-  // Determine recommended level based on experience
-  let recommendedLevel = 1;
-  if (!hasPlayedSquash || yearsPlaying < 1) {
-    recommendedLevel = 1;
-  } else if (yearsPlaying < 2) {
-    recommendedLevel = 2;
-  } else if (yearsPlaying < 4) {
-    recommendedLevel = 3;
-  } else if (yearsPlaying < 6) {
-    recommendedLevel = 4;
-  } else {
-    recommendedLevel = 5;
-  }
-  
-  // Create or update player profile
-  if (!existingPlayer) {
-    const { error: createPlayerError } = await supabase
-      .from("players")
-      .insert({
-        id: userId,
-        skill_level: hasPlayedSquash ? "Experienced" : "Beginner",
-        years_playing: yearsPlaying,
-        goals: "Improve squash skills"
-      });
-      
-    if (createPlayerError) {
-      console.error("Error creating player profile:", createPlayerError);
-      return { error: "Error creating player profile" };
-    }
-  }
-  
-  return { 
-    success: true, 
-    recommendedLevel,
-    shouldBookAssessment: hasPlayedSquash && yearsPlaying >= 1
-  };
 }
 
 export async function createTestUser() {
   "use server";
   const supabase = await createClient();
   const userId = uuidv4();
-  
-  try {
-    console.log("Creating test user with ID:", userId);
-    
-    // Create basic user with minimal required fields
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .insert({
-        id: userId,
-        email: `test-${Date.now()}@example.com`,
-        full_name: "Test User",
-        role: "player"
-      })
-      .select("id, email")
-      .single();
-      
-    if (userError) {
-      console.log("Error creating test user:", userError);
-      return { success: false, error: userError.message };
-    }
-    
-    console.log("Successfully created test user:", userData);
-    
-    // Create player record
-    const { error: playerError } = await supabase
-      .from("players")
-      .insert({
-        id: userId,
-        skill_level: "Beginner",
-        years_playing: 0,
-        goals: "Test user goals"
-      });
-      
-    if (playerError) {
-      console.log("Error creating player record:", playerError);
-      return { 
-        success: true, 
-        user: userData,
-        warning: "User created but player profile creation failed: " + playerError.message
-      };
-    }
-    
-    return { success: true, user: userData };
-  } catch (err) {
-    console.log("Exception in createTestUser:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
-  }
-}
-
-export async function setupCoachSchedules() {
-  const supabase = await createClient();
   
   try {
     // Read the migration files and execute them
@@ -2238,6 +2078,9 @@ export async function insertRoyalBritishSchedules() {
       error?: string;
       action?: string;
       id?: string;
+      day?: string;
+      coach?: string;
+      time?: string;
     };
     
     // 1. Get or create the Royal British School branch
@@ -2308,7 +2151,8 @@ export async function insertRoyalBritishSchedules() {
       "ahmed mahrous": "Ahmed Mahrous",
       "alaa taha": "Alaa Taha",
       "omar zaki": "Omar Zaki",
-      "abdullah": "Abdullah"
+      "ahmed maher": "Ahmed Maher",
+      "abdelrahman dahy": "Abdelrahman Dahy"
     };
     
     for (const coach of coaches) {
@@ -2325,34 +2169,17 @@ export async function insertRoyalBritishSchedules() {
         coachMap.set("alaa taha", coach.id);
       } else if (name.includes("omar") && name.includes("zaki")) {
         coachMap.set("omar zaki", coach.id);
-      } else if (name.includes("abdullah") || name.includes("abdallah") || name === "abdullah") {
-        coachMap.set("abdullah", coach.id);
+      } else if (name.includes("ahmed") && name.includes("maher")) {
+        coachMap.set("ahmed maher", coach.id);
+      } else if (name.includes("abdelrahman") || name.includes("dahy")) {
+        coachMap.set("abdelrahman dahy", coach.id);
       }
     }
     
     console.log("Coach mappings created:", Object.fromEntries(coachMap));
     
-    // If "Abdullah" is not found in the coaches list, we'll try to find the most appropriate coach
-    if (!coachMap.has("abdullah")) {
-      // Look for any coach with "abdullah" or similar name
-      for (const coach of coaches) {
-        const name = coach.full_name.toLowerCase();
-        if (name.includes("abd") || name.includes("abdallah") || name.includes("abdullah")) {
-          coachMap.set("abdullah", coach.id);
-          console.log(`Using ${coach.full_name} as "Abdullah" with ID ${coach.id}`);
-          break;
-        }
-      }
-      
-      // If still not found, pick the first available coach as a fallback
-      if (!coachMap.has("abdullah") && coaches.length > 0) {
-        coachMap.set("abdullah", coaches[0].id);
-        console.log(`No match for "Abdullah" found, using ${coaches[0].full_name} as fallback`);
-      }
-    }
-    
     // Check if all required coaches exist
-    const requiredCoaches = ["ahmed fakhry", "ahmed mahrous", "alaa taha", "omar zaki", "abdullah"];
+    const requiredCoaches = ["ahmed fakhry", "ahmed mahrous", "alaa taha", "omar zaki", "ahmed maher", "abdelrahman dahy"];
     const missingCoaches: string[] = [];
     
     for (const coach of requiredCoaches) {
@@ -2391,9 +2218,7 @@ export async function insertRoyalBritishSchedules() {
         coachId = coachMap.get(coachKey);
       } else {
         // Try to find the coach by partial match
-        // Using Array.from to convert the entries into an array that can be iterated safely
-        const entries = Array.from(coachMap.entries());
-        for (const [key, id] of entries) {
+        for (const [key, id] of Array.from(coachMap.entries())) {
           if (coachKey.includes(key) || key.includes(coachKey)) {
             coachId = id;
             console.log(`Using fuzzy match for ${coachName}: found "${key}" with ID ${id}`);
@@ -2412,8 +2237,10 @@ export async function insertRoyalBritishSchedules() {
           coachId = coachMap.get("alaa taha");
         } else if (coachKey.includes("zaki")) {
           coachId = coachMap.get("omar zaki");
-        } else if (coachKey.includes("abdallah") || coachKey.includes("abdullah")) {
-          coachId = coachMap.get("abdullah");
+        } else if (coachKey.includes("maher")) {
+          coachId = coachMap.get("ahmed maher");
+        } else if (coachKey.includes("dahy") || coachKey.includes("abdelrahman")) {
+          coachId = coachMap.get("abdelrahman dahy");
         }
       }
       
@@ -2473,7 +2300,7 @@ export async function insertRoyalBritishSchedules() {
         
       if (checkError) {
         console.error("Error checking for existing session:", checkError);
-        return { error: `Failed to check for existing session: ${checkError.message}` };
+        return { error: `Failed to check for existing session: ${checkError.message}`, day, coach: coachName, time };
       }
       
       // Either update or create the session
@@ -2488,10 +2315,10 @@ export async function insertRoyalBritishSchedules() {
           
         if (updateError) {
           console.error("Error updating session:", updateError);
-          return { error: `Failed to update session: ${updateError.message}` };
+          return { error: `Failed to update session: ${updateError.message}`, day, coach: coachName, time };
         }
         
-        return { success: true, action: "updated", id: existingSession.id };
+        return { success: true, action: "updated", id: existingSession.id, day, coach: coachName, time };
       } else {
         // Create new session
         const sessionId = uuidv4();
@@ -2502,6 +2329,7 @@ export async function insertRoyalBritishSchedules() {
           coach_id: coachId,
           branch_id: branchId,
           session_date: formattedDate,
+          day_of_week: day, // Add the day_of_week field
           start_time: startTime,
           end_time: endTime,
           status: student ? "booked" : "available"
@@ -2516,156 +2344,40 @@ export async function insertRoyalBritishSchedules() {
             
           if (insertError) {
             console.error("Error creating session:", insertError);
-            return { error: `Failed to create session: ${insertError.message}` };
+            return { error: `Failed to create session: ${insertError.message}`, day, coach: coachName, time };
           }
           
-          return { success: true, action: "created", id: sessionId };
+          return { success: true, action: "created", id: sessionId, day, coach: coachName, time };
         } catch (error) {
           console.error("Exception creating session:", error);
           const errorMessage = error instanceof Error ? error.message : String(error);
-          return { error: `Exception: ${errorMessage}` };
+          return { error: `Exception: ${errorMessage}`, day, coach: coachName, time };
         }
       }
     };
     
-    // Process Tuesday schedule
-    console.log("Processing Tuesday schedule...");
-    const tuesdaySchedule = [
-      { time: "3:30", coach1: "Ahmed Fakhry", student1: "", coach2: "Ahmed Mahrous", student2: "ECA" },
-      { time: "4:30", coach1: "Ahmed Fakhry", student1: "Rayan (individual)", coach2: "Ahmed Mahrous", student2: "Tamem (individual)" },
-      { time: "5:15", coach1: "Ahmed Fakhry", student1: "Mayada emad (individual)", coach2: "Ahmed Mahrous", student2: "Mariam sherif (individual)" },
-      { time: "6:00", coach1: "Ahmed Fakhry", student1: "Dalida (individual)", coach2: "Ahmed Mahrous", student2: "elissa mark (individual)" },
-      { time: "6:45", coach1: "Ahmed Fakhry", student1: "Lara omar (individual)", coach2: "Ahmed Mahrous", student2: "Laila ashraf (individual)" },
-      { time: "7:30", coach1: "Ahmed Fakhry", student1: "Aly Ahmed (individual)", coach2: "Ahmed Mahrous", student2: "Marwa fahmy (individual)" },
-      { time: "8:15", coach1: "Ahmed Fakhry", student1: "Farida amr (individual)", coach2: "Ahmed Mahrous", student2: "Cady mohamed (individual)" },
-      { time: "9:00", coach1: "Ahmed Fakhry", student1: "", coach2: "Ahmed Mahrous", student2: "" }
-    ];
-    
+    // Arrays to store results from each day's processing
     const tuesdayResults: SessionResult[] = [];
-    for (const slot of tuesdaySchedule) {
-      const result1 = await createSession("Tuesday", slot.time, slot.coach1, slot.student1, 1);
-      const result2 = await createSession("Tuesday", slot.time, slot.coach2, slot.student2, 2);
-      
-      if (result1) tuesdayResults.push(result1);
-      if (result2) tuesdayResults.push(result2);
-    }
-    
-    // Process Wednesday schedule
-    console.log("Processing Wednesday schedule...");
-    const wednesdaySchedule = [
-      { time: "3:30", coach1: "Abdullah", student1: "", coach2: "Alaa Taha", student2: "Aly Mostafa (starting 23/04)" },
-      { time: "4:15", coach1: "Abdullah", student1: "layan (individual)", coach2: "Alaa Taha", student2: "Taher and Ameen Asser Yassin (group)" },
-      { time: "5:00", coach1: "Abdullah", student1: "Camellia Gheriany (Individual)", coach2: "Alaa Taha", student2: "Talia mohamed (individual)" },
-      { time: "5:45", coach1: "Abdullah", student1: "Assessment by the 1st of May Yehia and aly (group)", coach2: "Alaa Taha", student2: "Selim el khamry (individual)" },
-      { time: "6:30", coach1: "Abdullah", student1: "Aly karim (individual)", coach2: "Alaa Taha", student2: "Omar sherif salem (individual)" },
-      { time: "7:15", coach1: "Abdullah", student1: "Hachem (individual) (till 31/04 then day is cancelled)", coach2: "Alaa Taha", student2: "Gasser (individual) (till 31/04 then day is cancelled)" },
-      { time: "8:00", coach1: "Abdullah", student1: "Youssef adham (individual)", coach2: "Alaa Taha", student2: "Mohamed reda el basiuony (individual) not coming 23/04" },
-      { time: "8:45", coach1: "Abdullah", student1: "", coach2: "Alaa Taha", student2: "" }
-    ];
-    
     const wednesdayResults: SessionResult[] = [];
-    for (const slot of wednesdaySchedule) {
-      const result1 = await createSession("Wednesday", slot.time, slot.coach1, slot.student1, 1);
-      const result2 = await createSession("Wednesday", slot.time, slot.coach2, slot.student2, 2);
-      
-      if (result1) wednesdayResults.push(result1);
-      if (result2) wednesdayResults.push(result2);
-    }
-    
-    // Process Thursday schedule
-    console.log("Processing Thursday schedule...");
-    const thursdaySchedule = [
-      { time: "3:30", coach1: "Omar Zaki", student1: "Yassin Mohamed Mamdouh from", coach2: "", student2: "" },
-      { time: "4:15", coach1: "Omar Zaki", student1: "Zaina El Ghazawy (individual)", coach2: "", student2: "" },
-      { time: "5:00", coach1: "Omar Zaki", student1: "Marwa Fahmy", coach2: "", student2: "" },
-      { time: "5:45", coach1: "Omar Zaki", student1: "Hachem (individual)", coach2: "", student2: "" },
-      { time: "6:30", coach1: "Omar Zaki", student1: "Gasser (individual)", coach2: "", student2: "" },
-      { time: "7:15", coach1: "Omar Zaki", student1: "Aisha yasser (individual)", coach2: "", student2: "" },
-      { time: "8:00", coach1: "Omar Zaki", student1: "Icel mohamed (individual)", coach2: "", student2: "" },
-      { time: "8:45", coach1: "Omar Zaki", student1: "Dema mohamed (individual)", coach2: "", student2: "" }
-    ];
-    
     const thursdayResults: SessionResult[] = [];
-    for (const slot of thursdaySchedule) {
-      const result1 = await createSession("Thursday", slot.time, slot.coach1, slot.student1, 1);
-      const result2 = await createSession("Thursday", slot.time, slot.coach2, slot.student2, 2);
-      
-      if (result1) thursdayResults.push(result1);
-      if (result2) thursdayResults.push(result2);
-    }
-    
-    // Process Saturday schedule
-    console.log("Processing Saturday schedule...");
-    const saturdaySchedule = [
-      { time: "10:00", coach1: "Omar Zaki", student1: "Taher and Ameen Asser yassin (group)", coach2: "Ahmed Mahrous", student2: "" },
-      { time: "10:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Laila ashraf( individual )" },
-      { time: "11:30", coach1: "Omar Zaki", student1: "Layla Mohamed Sadek (individual)", coach2: "Ahmed Mahrous", student2: "Mariam sherif (individual)" },
-      { time: "12:15", coach1: "Omar Zaki", student1: "Hachem (individual)", coach2: "Ahmed Mahrous", student2: "Gasser (individual)" },
-      { time: "1:00", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Carla mahmoud (individual)" },
-      { time: "1:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Hamza (individual)" },
-      { time: "2:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Aly karim (individual)" },
-      { time: "3:15", coach1: "Omar Zaki", student1: "Yehia and aly (not coming 19/04)", coach2: "Ahmed Mahrous", student2: "Dema mohamed (individual)" },
-      { time: "4:00", coach1: "Omar Zaki", student1: "Aisha yasser (individual)", coach2: "Ahmed Mahrous", student2: "Rayan (individual)" },
-      { time: "4:45", coach1: "Omar Zaki", student1: "Mariam Ahmed", coach2: "Ahmed Mahrous", student2: "Tamem (individual)" },
-      { time: "5:30", coach1: "Omar Zaki", student1: "Icel mohamed (individual)", coach2: "Ahmed Mahrous", student2: "Youssef" },
-      { time: "6:15", coach1: "Omar Zaki", student1: "Zeina El Ghazawy (individual)", coach2: "Ahmed Mahrous", student2: "Younes" },
-      { time: "7:00", coach1: "Omar Zaki", student1: "Selim el khamiry (individual)", coach2: "Ahmed Mahrous", student2: "Adam merai (individual)" },
-      { time: "7:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Farida amr (individual)" },
-      { time: "8:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "" }
-    ];
-    
-    const saturdayResults: SessionResult[] = [];
-    for (const slot of saturdaySchedule) {
-      const result1 = await createSession("Saturday", slot.time, slot.coach1, slot.student1, 1);
-      const result2 = await createSession("Saturday", slot.time, slot.coach2, slot.student2, 2);
-      
-      if (result1) saturdayResults.push(result1);
-      if (result2) saturdayResults.push(result2);
-    }
-    
-    // Process Friday schedule
-    console.log("Processing Friday schedule...");
-    const fridaySchedule = [
-      { time: "10:00", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "10:45", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "11:30", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "11:00", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "12:00", coach1: "", student1: "Prayer Time", coach2: "", student2: "Prayer Time" },
-      { time: "1:30", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "2:15", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "3:00", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "3:45", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "4:30", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "5:15", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "6:00", coach1: "Omar Zaki", student1: "", coach2: "", student2: "" },
-      { time: "6:45", coach1: "", student1: "", coach2: "", student2: "" },
-      { time: "7:15", coach1: "", student1: "", coach2: "", student2: "" },
-      { time: "8:00", coach1: "", student1: "", coach2: "", student2: "" }
-    ];
-    
     const fridayResults: SessionResult[] = [];
-    for (const slot of fridaySchedule) {
-      const result1 = await createSession("Friday", slot.time, slot.coach1, slot.student1, 1);
-      const result2 = await createSession("Friday", slot.time, slot.coach2, slot.student2, 2);
-      
-      if (result1) fridayResults.push(result1);
-      if (result2) fridayResults.push(result2);
-    }
+    const saturdayResults: SessionResult[] = [];
+    const sundayResults: SessionResult[] = [];
+    const mondayResults: SessionResult[] = [];
     
     // Process Sunday schedule
     console.log("Processing Sunday schedule...");
     const sundaySchedule = [
-      { time: "3:30", coach1: "Ahmed Fakhry", student1: "ECA", coach2: "Abdullah", student2: "" },
-      { time: "4:30", coach1: "Ahmed Fakhry", student1: "Rayan (individual)", coach2: "Abdullah", student2: "Tamem (individual)" },
-      { time: "5:15", coach1: "Ahmed Fakhry", student1: "Mayada Emad (individual)", coach2: "Abdullah", student2: "Omar sherif (individual)" },
-      { time: "6:00", coach1: "Ahmed Fakhry", student1: "Dalida(individual)", coach2: "Abdullah", student2: "Mohamed reda el basuiny (individual)" },
-      { time: "6:45", coach1: "Ahmed Fakhry", student1: "Lara omar(individual)", coach2: "Abdullah", student2: "elissa mark (individual)" },
-      { time: "7:30", coach1: "Ahmed Fakhry", student1: "aly ahmed( individual )", coach2: "Abdullah", student2: "Cady mohamed(individual)" },
-      { time: "8:15", coach1: "Ahmed Fakhry", student1: "Aly mostafa(individual)", coach2: "Abdullah", student2: "youssef Adham(individual)" },
-      { time: "9:00", coach1: "Ahmed Fakhry", student1: "", coach2: "Abdullah", student2: "" }
+      { time: "3:30", coach1: "Ahmed Fakhry", student1: "ECA", coach2: "Ahmed Maher", student2: "ECA" },
+      { time: "4:30", coach1: "Ahmed Fakhry", student1: "Rayan (individual)", coach2: "Ahmed Maher", student2: "Tamem (individual)" },
+      { time: "5:15", coach1: "Ahmed Fakhry", student1: "Mayada Emad (individual)", coach2: "Ahmed Maher", student2: "Omar sherif (individual)" },
+      { time: "6:00", coach1: "Ahmed Fakhry", student1: "Dalida (individual)", coach2: "Ahmed Maher", student2: "Mohamed reda el basuiny (individual)" },
+      { time: "6:45", coach1: "Ahmed Fakhry", student1: "Lara omar (individual)", coach2: "Ahmed Maher", student2: "elissa mark (individual)" },
+      { time: "7:30", coach1: "Ahmed Fakhry", student1: "aly ahmed (individual)", coach2: "Ahmed Maher", student2: "Cady mohamed (individual)" },
+      { time: "8:15", coach1: "Ahmed Fakhry", student1: "Aly mostafa (individual)", coach2: "Ahmed Maher", student2: "youssef Adham (individual)" },
+      { time: "9:00", coach1: "", student1: "", coach2: "", student2: "" }
     ];
     
-    const sundayResults: SessionResult[] = [];
     for (const slot of sundaySchedule) {
       const result1 = await createSession("Sunday", slot.time, slot.coach1, slot.student1, 1);
       const result2 = await createSession("Sunday", slot.time, slot.coach2, slot.student2, 2);
@@ -2677,17 +2389,16 @@ export async function insertRoyalBritishSchedules() {
     // Process Monday schedule
     console.log("Processing Monday schedule...");
     const mondaySchedule = [
-      { time: "3:30", coach1: "Alaa Taha", student1: "ECA", coach2: "Ahmed Magdy", student2: "ECA" },
-      { time: "4:30", coach1: "Alaa Taha", student1: "Layla Mohamed Sadek (Individual)", coach2: "Ahmed Magdy", student2: "Selim el khamiry(individual) Not Confirmed" },
-      { time: "5:15", coach1: "Alaa Taha", student1: "Talia mohamed (individual)", coach2: "Ahmed Magdy", student2: "Camellia Gheriany (Individual)" },
-      { time: "6:00", coach1: "Alaa Taha", student1: "Carla mahmoud (individual)", coach2: "Ahmed Magdy", student2: "Mariam ahmed (individual)" },
-      { time: "6:45", coach1: "Alaa Taha", student1: "Aly mostafa(individual)", coach2: "Ahmed Magdy", student2: "layan(individual)" },
-      { time: "7:30", coach1: "Alaa Taha", student1: "Omar sherif salem (individual)", coach2: "Ahmed Magdy", student2: "Yasin Mohamed Mamdouh (from 28/04)" },
-      { time: "8:15", coach1: "Alaa Taha", student1: "Marwa fahmy (individual)", coach2: "Ahmed Magdy", student2: "Adam merai(individual)" },
-      { time: "9:00", coach1: "Alaa Taha", student1: "Hamza(individual)", coach2: "Ahmed Magdy", student2: "Malek Ahmed Tarek (from 01/05)" }
+      { time: "3:30", coach1: "Alaa Taha", student1: "ECA", coach2: "Abdelrahman Dahy", student2: "ECA" },
+      { time: "4:30", coach1: "Alaa Taha", student1: "Layla Mohamed Sadek (Individual)", coach2: "Abdelrahman Dahy", student2: "Selim el khamiry(individual) Not Confirmed" },
+      { time: "5:15", coach1: "Alaa Taha", student1: "Talia mohamed (individual)", coach2: "Abdelrahman Dahy", student2: "Camellia Gheriany (Individual)" },
+      { time: "6:00", coach1: "Alaa Taha", student1: "Carla mahmoud (individual)", coach2: "Abdelrahman Dahy", student2: "Mariam ahmed (individual)" },
+      { time: "6:45", coach1: "Alaa Taha", student1: "Aly mostafa(individual)", coach2: "Abdelrahman Dahy", student2: "layan(individual)" },
+      { time: "7:30", coach1: "Alaa Taha", student1: "Omar sherif salem (individual)", coach2: "Abdelrahman Dahy", student2: "Yasin Mohamed Mamdouh (from 28/04)" },
+      { time: "8:15", coach1: "Alaa Taha", student1: "Marwa fahmy (individual)", coach2: "Abdelrahman Dahy", student2: "Adam merai(individual)" },
+      { time: "9:00", coach1: "Alaa Taha", student1: "Hamza (individual)", coach2: "Abdelrahman Dahy", student2: "Malek Ahmed Tarek (from 01/05)" }
     ];
     
-    const mondayResults: SessionResult[] = [];
     for (const slot of mondaySchedule) {
       const result1 = await createSession("Monday", slot.time, slot.coach1, slot.student1, 1);
       const result2 = await createSession("Monday", slot.time, slot.coach2, slot.student2, 2);
@@ -2696,15 +2407,134 @@ export async function insertRoyalBritishSchedules() {
       if (result2) mondayResults.push(result2);
     }
     
+    // Process Tuesday schedule
+    console.log("Processing Tuesday schedule...");
+    const tuesdaySchedule = [
+      { time: "3:30", coach1: "Ahmed Fakhry", student1: "", coach2: "Ahmed Mahrous", student2: "ECA" },
+      { time: "4:30", coach1: "Ahmed Fakhry", student1: "Rayan (individual)", coach2: "Ahmed Mahrous", student2: "Tamem (individual)" },
+      { time: "5:15", coach1: "Ahmed Fakhry", student1: "Mayada emad (individual)", coach2: "Ahmed Mahrous", student2: "Mariam sherif (individual)" },
+      { time: "6:00", coach1: "Ahmed Fakhry", student1: "Dalida (individual)", coach2: "Ahmed Mahrous", student2: "elissa mark (individual)" },
+      { time: "6:45", coach1: "Ahmed Fakhry", student1: "Lara omar (individual)", coach2: "Ahmed Mahrous", student2: "Laila ashraf (individual)" },
+      { time: "7:30", coach1: "Ahmed Fakhry", student1: "Aly Ahmed (individual)", coach2: "Ahmed Mahrous", student2: "Marwa fahmy (individual)" },
+      { time: "8:15", coach1: "Ahmed Fakhry", student1: "Farida amr (individual)", coach2: "Ahmed Mahrous", student2: "Cady mohamed (individual)" },
+      { time: "9:00", coach1: "", student1: "", coach2: "", student2: "" }
+    ];
+    
+    for (const slot of tuesdaySchedule) {
+      const result1 = await createSession("Tuesday", slot.time, slot.coach1, slot.student1, 1);
+      const result2 = await createSession("Tuesday", slot.time, slot.coach2, slot.student2, 2);
+      
+      if (result1) tuesdayResults.push(result1);
+      if (result2) tuesdayResults.push(result2);
+    }
+    
+    // Process Wednesday schedule
+    console.log("Processing Wednesday schedule...");
+    const wednesdaySchedule = [
+      { time: "3:30", coach1: "Ahmed Maher", student1: "", coach2: "Alaa Taha", student2: "Aly Mostafa (starting 23/04)" },
+      { time: "4:15", coach1: "Ahmed Maher", student1: "layan (individual)", coach2: "Alaa Taha", student2: "Taher and Ameen Asser Yassin (group)" },
+      { time: "5:00", coach1: "Ahmed Maher", student1: "Camellia Gheriany (Individual)", coach2: "Alaa Taha", student2: "Talia mohamed (individual)" },
+      { time: "5:45", coach1: "Ahmed Maher", student1: "Assessment by the 1st of May Yehia and aly (group)", coach2: "Alaa Taha", student2: "Selim el khamry (individual)" },
+      { time: "6:30", coach1: "Ahmed Maher", student1: "Aly karim (individual)", coach2: "Alaa Taha", student2: "Omar sherif salem (individual)" },
+      { time: "7:15", coach1: "Ahmed Maher", student1: "Hachem (individual)", coach2: "Alaa Taha", student2: "Gasser (individual)" },
+      { time: "8:00", coach1: "Ahmed Maher", student1: "Youssef adham (individual)", coach2: "Alaa Taha", student2: "Mohamed reda el basiuony (individual)" },
+      { time: "8:45", coach1: "", student1: "", coach2: "", student2: "" }
+    ];
+    
+    for (const slot of wednesdaySchedule) {
+      const result1 = await createSession("Wednesday", slot.time, slot.coach1, slot.student1, 1);
+      const result2 = await createSession("Wednesday", slot.time, slot.coach2, slot.student2, 2);
+      
+      if (result1) wednesdayResults.push(result1);
+      if (result2) wednesdayResults.push(result2);
+    }
+    
+    // Process Thursday schedule
+    console.log("Processing Thursday schedule...");
+    const thursdaySchedule = [
+      { time: "3:30", coach1: "Omar Zaki", student1: "Yassin Mohamed Mamdouh", coach2: "", student2: "" },
+      { time: "4:15", coach1: "Omar Zaki", student1: "Zeina El Ghazawy (individual)", coach2: "", student2: "" },
+      { time: "5:00", coach1: "Omar Zaki", student1: "Marwa Fahmy", coach2: "", student2: "" },
+      { time: "5:45", coach1: "Omar Zaki", student1: "Hachem (individual)", coach2: "", student2: "" },
+      { time: "6:30", coach1: "Omar Zaki", student1: "Gasser (individual)", coach2: "", student2: "" },
+      { time: "7:15", coach1: "Omar Zaki", student1: "Aisha yasser (individual)", coach2: "", student2: "" },
+      { time: "8:00", coach1: "Omar Zaki", student1: "Icel mohamed (individual)", coach2: "", student2: "" },
+      { time: "8:45", coach1: "Omar Zaki", student1: "Dema mohamed (individual)", coach2: "", student2: "" }
+    ];
+    
+    for (const slot of thursdaySchedule) {
+      const result1 = await createSession("Thursday", slot.time, slot.coach1, slot.student1, 1);
+      const result2 = await createSession("Thursday", slot.time, slot.coach2, slot.student2, 2);
+      
+      if (result1) thursdayResults.push(result1);
+      if (result2) thursdayResults.push(result2);
+    }
+    
+    // Process Friday schedule - keep original
+    console.log("Processing Friday schedule...");
+    const fridaySchedule = [
+      { time: "10:00", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "10:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "11:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "12:15", coach1: "Prayer Time", student1: "", coach2: "Prayer Time", student2: "" },
+      { time: "1:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "2:15", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "3:00", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "3:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "4:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "5:15", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "6:00", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "6:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "7:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "8:15", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" },
+      { time: "9:00", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Fakhry", student2: "" }
+    ];
+    
+    for (const slot of fridaySchedule) {
+      const result1 = await createSession("Friday", slot.time, slot.coach1, slot.student1, 1);
+      const result2 = await createSession("Friday", slot.time, slot.coach2, slot.student2, 2);
+      
+      if (result1) fridayResults.push(result1);
+      if (result2) fridayResults.push(result2);
+    }
+    
+    // Process Saturday schedule - keep original
+    console.log("Processing Saturday schedule...");
+    const saturdaySchedule = [
+      { time: "10:00", coach1: "Omar Zaki", student1: "Taher & Ameen Asser yassin", coach2: "Ahmed Mahrous", student2: "" },
+      { time: "10:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Laila ashraf" },
+      { time: "11:30", coach1: "Omar Zaki", student1: "Layla Mohamed Sadek", coach2: "Ahmed Mahrous", student2: "Mariam sherif" },
+      { time: "12:15", coach1: "Omar Zaki", student1: "Hachem", coach2: "Ahmed Mahrous", student2: "Gasser" },
+      { time: "1:00", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Carla mahmoud" },
+      { time: "1:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Hamza" },
+      { time: "2:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Aly karim" },
+      { time: "3:15", coach1: "Omar Zaki", student1: "Yehia and aly", coach2: "Ahmed Mahrous", student2: "Dema mohamed" },
+      { time: "4:00", coach1: "Omar Zaki", student1: "Aisha yasser", coach2: "Ahmed Mahrous", student2: "Rayan" },
+      { time: "4:45", coach1: "Omar Zaki", student1: "Mariam Ahmed", coach2: "Ahmed Mahrous", student2: "Tamem" },
+      { time: "5:30", coach1: "Omar Zaki", student1: "Icel mohamed", coach2: "Ahmed Mahrous", student2: "" },
+      { time: "6:15", coach1: "Omar Zaki", student1: "Zeina El Ghazawy", coach2: "Ahmed Mahrous", student2: "" },
+      { time: "7:00", coach1: "Omar Zaki", student1: "Selim el khamiry", coach2: "Ahmed Mahrous", student2: "" },
+      { time: "7:45", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "Farida amr" },
+      { time: "8:30", coach1: "Omar Zaki", student1: "", coach2: "Ahmed Mahrous", student2: "" }
+    ];
+    
+    for (const slot of saturdaySchedule) {
+      const result1 = await createSession("Saturday", slot.time, slot.coach1, slot.student1, 1);
+      const result2 = await createSession("Saturday", slot.time, slot.coach2, slot.student2, 2);
+      
+      if (result1) saturdayResults.push(result1);
+      if (result2) saturdayResults.push(result2);
+    }
+    
     // Compile overall results
     const allResults: SessionResult[] = [
+      ...sundayResults,
+      ...mondayResults,
       ...tuesdayResults,
       ...wednesdayResults,
       ...thursdayResults,
-      ...saturdayResults,
-      ...sundayResults,
-      ...mondayResults,
-      ...fridayResults
+      ...fridayResults,
+      ...saturdayResults
     ];
     
     const created = allResults.filter(r => r.success && r.action === "created").length;
@@ -2730,5 +2560,809 @@ export async function insertRoyalBritishSchedules() {
       success: false,
       error: error instanceof Error ? error.message : String(error)
     };
+  }
+}
+
+export async function regenerateCoachSessions() {
+  "use server";
+  try {
+    console.log("------------ BEGIN COACH SESSION REGENERATION ------------");
+    const supabase = await createClient();
+    const startDate = new Date(); // Use today as the start date
+    
+    console.log("Starting coach session regeneration...");
+    
+    // First clear any existing future available sessions
+    console.log("Clearing existing available future sessions...");
+    const today = new Date().toISOString().split('T')[0];
+    const { error: deleteError } = await supabase
+      .from("coach_sessions")
+      .delete()
+      .eq("status", "available")
+      .gte("session_date", today);
+      
+    if (deleteError) {
+      console.error("Error deleting existing sessions:", deleteError);
+      console.error("DELETE ERROR DETAILS:", {
+        code: deleteError.code,
+        message: deleteError.message,
+        hint: deleteError.hint,
+        details: deleteError.details
+      });
+      return { success: false, error: `Failed to clean up existing sessions: ${deleteError.message}` };
+    }
+    
+    // Check if coaches table exists and has data
+    console.log("Checking coaches table...");
+    const { data: coaches, error: coachCheckError } = await supabase
+      .from("coaches")
+      .select("id, name")
+      .limit(5);
+      
+    if (coachCheckError) {
+      console.error("Error checking coaches table:", coachCheckError);
+      console.error("COACH CHECK ERROR DETAILS:", {
+        code: coachCheckError.code,
+        message: coachCheckError.message,
+        hint: coachCheckError.hint,
+        details: coachCheckError.details
+      });
+      return { success: false, error: `Failed to access coaches table: ${coachCheckError.message}` };
+    }
+    
+    if (!coaches || coaches.length === 0) {
+      console.error("No coaches found in the database");
+      return { success: false, error: "No coaches found in the database. Please create coaches first." };
+    }
+    
+    // Check if branches table exists and has data
+    console.log("Checking branches table...");
+    const { data: branches, error: branchCheckError } = await supabase
+      .from("branches")
+      .select("id, name")
+      .limit(5);
+      
+    if (branchCheckError) {
+      console.error("Error checking branches table:", branchCheckError);
+      console.error("BRANCH CHECK ERROR DETAILS:", {
+        code: branchCheckError.code,
+        message: branchCheckError.message,
+        hint: branchCheckError.hint,
+        details: branchCheckError.details
+      });
+      return { success: false, error: `Failed to access branches table: ${branchCheckError.message}` };
+    }
+    
+    if (!branches || branches.length === 0) {
+      console.error("No branches found in the database");
+      return { success: false, error: "No branches found in the database. Please create branches first." };
+    }
+    
+    // Fetch all coach schedules
+    console.log("Fetching coach schedules...");
+    const { data: schedules, error: schedulesError } = await supabase
+      .from("coach_schedules")
+      .select(`
+        id,
+        coach_id,
+        branch_id,
+        day_of_week,
+        start_time,
+        end_time,
+        session_duration
+      `);
+      
+    if (schedulesError) {
+      console.error("Error fetching coach schedules:", schedulesError);
+      console.error("SCHEDULE ERROR DETAILS:", {
+        code: schedulesError.code,
+        message: schedulesError.message,
+        hint: schedulesError.hint,
+        details: schedulesError.details
+      });
+      return { success: false, error: `Failed to fetch coach schedules: ${schedulesError.message}` };
+    }
+    
+    if (!schedules || schedules.length === 0) {
+      console.error("No coach schedules found in the database");
+      return { success: false, error: "No coach schedules found in the database. Please create schedules first." };
+    }
+    
+    console.log(`Found ${schedules.length} coach schedules to process`);
+    
+    // Verify coach_sessions table structure by attempting a select
+    console.log("Verifying coach_sessions table structure...");
+    try {
+      const { error: sessionStructureError } = await supabase
+        .from("coach_sessions")
+        .select("id")
+        .limit(1);
+        
+      if (sessionStructureError) {
+        console.error("Error verifying coach_sessions table:", sessionStructureError);
+        console.error("SESSION STRUCTURE ERROR DETAILS:", {
+          code: sessionStructureError.code,
+          message: sessionStructureError.message,
+          hint: sessionStructureError.hint,
+          details: sessionStructureError.details
+        });
+        return { 
+          success: false, 
+          error: `Problem with coach_sessions table: ${sessionStructureError.message}` 
+        };
+      }
+    } catch (structureError) {
+      console.error("Exception verifying coach_sessions table:", structureError);
+      return { 
+        success: false, 
+        error: `Exception checking coach_sessions table: ${structureError instanceof Error ? structureError.message : String(structureError)}` 
+      };
+    }
+    
+    // Group schedules by day of week
+    const schedulesByDay: Record<string, typeof schedules> = {};
+    schedules.forEach(schedule => {
+      // Normalize day_of_week to handle case sensitivity
+      const normalizedDay = schedule.day_of_week.charAt(0).toUpperCase() + 
+                          schedule.day_of_week.slice(1).toLowerCase();
+                          
+      if (!schedulesByDay[normalizedDay]) {
+        schedulesByDay[normalizedDay] = [];
+      }
+      
+      schedulesByDay[normalizedDay].push(schedule);
+    });
+    
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    type SessionToCreate = {
+      id: string;
+      coach_id: string;
+      branch_id: string;
+      coach_schedule_id: string;
+      session_date: string;
+      start_time: string;
+      end_time: string;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    };
+    
+    const sessionsToCreate: SessionToCreate[] = [];
+    const now = new Date().toISOString();
+    
+    // Generate sessions for the next 30 days
+    const daysToGenerate = 30;
+    console.log(`Generating sessions for the next ${daysToGenerate} days...`);
+    
+    for (let i = 0; i < daysToGenerate; i++) {
+      const currentDate = new Date(startDate);
+      currentDate.setDate(currentDate.getDate() + i);
+      
+      const dayOfWeek = daysOfWeek[currentDate.getDay()];
+      const dateString = currentDate.toISOString().split('T')[0];
+      
+      // Skip if no schedules for this day
+      if (!schedulesByDay[dayOfWeek]) {
+        console.log(`No schedules found for ${dayOfWeek}, skipping...`);
+        continue;
+      }
+      
+      console.log(`Processing ${schedulesByDay[dayOfWeek].length} schedules for ${dayOfWeek}, ${dateString}`);
+      
+      // Process each schedule for this day
+      for (const schedule of schedulesByDay[dayOfWeek]) {
+        try {
+          // Check if coach and branch exist
+          const coachExists = coaches.some(coach => coach.id === schedule.coach_id);
+          const branchExists = branches.some(branch => branch.id === schedule.branch_id);
+          
+          if (!coachExists) {
+            console.error(`Coach with ID ${schedule.coach_id} not found for schedule ${schedule.id}`);
+            continue;
+          }
+          
+          if (!branchExists) {
+            console.error(`Branch with ID ${schedule.branch_id} not found for schedule ${schedule.id}`);
+            continue;
+          }
+          
+          // Calculate time slots based on start time, end time, and session duration
+          let startHour = 0, startMinute = 0, endHour = 0, endMinute = 0;
+          
+          try {
+            [startHour, startMinute] = schedule.start_time.split(':').map(Number);
+            [endHour, endMinute] = schedule.end_time.split(':').map(Number);
+          } catch (timeError) {
+            console.error(`Error parsing time for schedule ${schedule.id}:`, timeError);
+            console.error(`Invalid time format: start=${schedule.start_time}, end=${schedule.end_time}`);
+            continue;
+          }
+          
+          // Create date objects for start and end times
+          let currentSlotStart = new Date(currentDate);
+          currentSlotStart.setHours(startHour, startMinute, 0, 0);
+          
+          const endTime = new Date(currentDate);
+          endTime.setHours(endHour, endMinute, 0, 0);
+          
+          const sessionDuration = schedule.session_duration || 45; // Default to 45 minutes if not specified
+          
+          // Generate slots with appropriate duration
+          while (currentSlotStart.getTime() < endTime.getTime() - (sessionDuration * 60 * 1000)) {
+            const slotEnd = new Date(currentSlotStart);
+            slotEnd.setMinutes(slotEnd.getMinutes() + sessionDuration);
+            
+            // Format times for database
+            const startTimeString = `${currentSlotStart.getHours().toString().padStart(2, '0')}:${currentSlotStart.getMinutes().toString().padStart(2, '0')}`;
+            const endTimeString = `${slotEnd.getHours().toString().padStart(2, '0')}:${slotEnd.getMinutes().toString().padStart(2, '0')}`;
+            
+            sessionsToCreate.push({
+              id: uuidv4(),
+              coach_id: schedule.coach_id,
+              branch_id: schedule.branch_id,
+              coach_schedule_id: schedule.id,
+              session_date: dateString,
+              start_time: startTimeString,
+              end_time: endTimeString,
+              status: "available",
+              created_at: now,
+              updated_at: now
+            });
+            
+            // Move to the next slot
+            currentSlotStart = slotEnd;
+          }
+        } catch (scheduleError) {
+          console.error(`Error processing schedule ${schedule.id}:`, scheduleError);
+        }
+      }
+    }
+    
+    if (sessionsToCreate.length === 0) {
+      console.error("No sessions were generated!");
+      return { 
+        success: false, 
+        error: "No sessions could be generated from the available schedules." 
+      };
+    }
+    
+    // Create sessions in batches to avoid hitting rate limits
+    const batchSize = 25; // Smaller batch size for reliability
+    let createdCount = 0;
+    
+    console.log(`Creating ${sessionsToCreate.length} sessions in batches of ${batchSize}...`);
+    
+    for (let i = 0; i < sessionsToCreate.length; i += batchSize) {
+      const batch = sessionsToCreate.slice(i, i + batchSize);
+      
+      if (batch.length > 0) {
+        try {
+          // Ensure each session has a unique ID
+          const batchWithIds = batch.map(session => ({
+            ...session,
+            id: session.id || uuidv4() // Use existing ID or generate a new one
+          }));
+          
+          const { error: createSessionsError } = await supabase
+            .from("coach_sessions")
+            .insert(batchWithIds);
+            
+          if (createSessionsError) {
+            console.error(`Error creating batch ${Math.floor(i/batchSize) + 1}:`, createSessionsError);
+            console.error("INSERT ERROR DETAILS:", {
+              code: createSessionsError.code,
+              message: createSessionsError.message,
+              hint: createSessionsError.hint,
+              details: createSessionsError.details
+            });
+            
+            // Try inserting one session at a time to find which one is causing issues
+            if (i === 0) { // Only do this for the first batch to avoid too many requests
+              console.log("Attempting to insert sessions one by one to diagnose issues...");
+              for (let j = 0; j < Math.min(batch.length, 5); j++) { // Try just the first few
+                const singleSession = {
+                  ...batch[j],
+                  id: uuidv4() // Generate a fresh UUID for each retry
+                };
+                try {
+                  const { error: singleInsertError } = await supabase
+                    .from("coach_sessions")
+                    .insert(singleSession);
+                    
+                  if (singleInsertError) {
+                    console.error(`Error inserting single session ${j}:`, singleInsertError);
+                    console.error("PROBLEMATIC SESSION:", singleSession);
+                  } else {
+                    createdCount++;
+                  }
+                } catch (singleError) {
+                  console.error(`Exception inserting single session ${j}:`, singleError);
+                }
+              }
+            }
+          } else {
+            createdCount += batch.length;
+            console.log(`Created batch ${Math.floor(i/batchSize) + 1} with ${batch.length} sessions`);
+          }
+        } catch (error) {
+          console.error(`Exception in batch ${Math.floor(i/batchSize) + 1}:`, error);
+        }
+      }
+    }
+    
+    console.log(`Coach session regeneration complete. Created ${createdCount} of ${sessionsToCreate.length} sessions`);
+    console.log("------------ END COACH SESSION REGENERATION ------------");
+    
+    if (createdCount === 0) {
+      return { 
+        success: false, 
+        error: "Failed to create any sessions. Check server logs for details."
+      };
+    }
+    
+    return { 
+      success: true, 
+      message: `Successfully regenerated coach sessions`,
+      totalSessions: sessionsToCreate.length,
+      createdSessions: createdCount
+    };
+  } catch (error) {
+    console.error("Error in regenerateCoachSessions:", error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+type UploadScheduleResult = {
+  success: boolean;
+  error?: string;
+  created?: number;
+  updated?: number;
+};
+
+type ScheduleItem = {
+  coach_name: string;
+  day: string;
+  start_time: string;
+  end_time: string;
+  court: string;
+  level?: string | number;
+  student?: string;
+};
+
+export async function uploadSchedule({
+  scheduleData,
+  branchId,
+  startDate
+}: {
+  scheduleData: string;
+  branchId: string;
+  startDate: string;
+}): Promise<UploadScheduleResult> {
+  "use server";
+  
+  try {
+    const supabase = await createClient();
+    
+    // Check if branch exists
+    const { data: branch, error: branchError } = await supabase
+      .from("branches")
+      .select("id, name")
+      .eq("id", branchId)
+      .single();
+    
+    if (branchError || !branch) {
+      console.error("Branch not found:", branchError);
+      return { success: false, error: "Branch not found" };
+    }
+    
+    // Parse the schedule data
+    let scheduleItems: ScheduleItem[] = [];
+    
+    if (scheduleData.trim().startsWith("[") || scheduleData.trim().startsWith("{")) {
+      // JSON format
+      try {
+        scheduleItems = JSON.parse(scheduleData);
+      } catch (e) {
+        return { success: false, error: "Invalid JSON format" };
+      }
+    } else {
+      // CSV format
+      const lines = scheduleData.split("\n");
+      
+      // Skip header if it exists
+      const startIdx = lines[0].includes("coach_name") ? 1 : 0;
+      
+      for (let i = startIdx; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const [coach_name, day, start_time, end_time, court, level, student] = line.split(",");
+        
+        if (!coach_name || !day || !start_time || !end_time) {
+          continue; // Skip incomplete lines
+        }
+        
+        scheduleItems.push({
+          coach_name: coach_name.trim(),
+          day: day.trim(),
+          start_time: start_time.trim(),
+          end_time: end_time.trim(),
+          court: court?.trim() || "Court 1",
+          level: level?.trim(),
+          student: student?.trim()
+        });
+      }
+    }
+    
+    if (scheduleItems.length === 0) {
+      return { success: false, error: "No valid schedule items found" };
+    }
+    
+    // Process the schedule items
+    const results = await processScheduleItems(supabase, scheduleItems, branchId, startDate);
+    
+    return {
+      success: true,
+      created: results.created,
+      updated: results.updated
+    };
+  } catch (error) {
+    console.error("Error uploading schedule:", error);
+    return {
+      success: false,
+      error: "Failed to upload schedule: " + (error as Error).message
+    };
+  }
+}
+
+async function processScheduleItems(
+  supabase: any,
+  scheduleItems: ScheduleItem[],
+  branchId: string,
+  startDate: string
+) {
+  // Keep track of results
+  let created = 0;
+  let updated = 0;
+  
+  // Get or create coaches
+  const coachNamesSet = new Set(scheduleItems.map(item => item.coach_name));
+  const coachNames = Array.from(coachNamesSet);
+  
+  for (const coachName of coachNames) {
+    // Try to find the coach by name
+    const { data: coachData, error: coachError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("role", "coach")
+      .ilike("first_name || ' ' || last_name", coachName)
+      .maybeSingle();
+    
+    if (coachError || !coachData) {
+      console.error(`Coach not found: ${coachName}`, coachError);
+      // Could create a placeholder coach here if needed
+    }
+  }
+  
+  // Calculate dates for each day of the week
+  const baseDate = new Date(startDate);
+  const dayMap: Record<string, Date> = {};
+  
+  // Set the base date to the previous Sunday
+  const dayOfWeek = baseDate.getDay(); // 0 for Sunday, 1 for Monday, etc.
+  baseDate.setDate(baseDate.getDate() - dayOfWeek);
+  
+  // Create a map of day names to dates
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(baseDate);
+    date.setDate(date.getDate() + i);
+    dayMap[dayNames[i]] = date;
+  }
+  
+  // Create sessions for each schedule item
+  for (const item of scheduleItems) {
+    // Find the coach
+    const { data: coachData } = await supabase
+      .from("users")
+      .select("id")
+      .eq("role", "coach")
+      .ilike("first_name || ' ' || last_name", item.coach_name)
+      .maybeSingle();
+    
+    if (!coachData) {
+      console.log(`Coach not found: ${item.coach_name}`);
+      continue;
+    }
+    
+    const coachId = coachData.id;
+    
+    // Get the date for this day
+    const sessionDate = dayMap[item.day];
+    if (!sessionDate) {
+      console.log(`Invalid day: ${item.day}`);
+      continue;
+    }
+    
+    // Format the date as YYYY-MM-DD
+    const formattedDate = sessionDate.toISOString().split("T")[0];
+    
+    // Create a session UUID
+    const sessionId = crypto.randomUUID();
+    
+    // Determine status based on whether a student is assigned
+    const status = item.student ? "booked" : "available";
+    
+    // Calculate session duration in minutes
+    const startParts = item.start_time.split(":");
+    const endParts = item.end_time.split(":");
+    const startMinutes = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
+    const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
+    const duration = endMinutes - startMinutes;
+    
+    // Create the session data
+    const sessionData = {
+      id: sessionId,
+      coach_id: coachId,
+      branch_id: branchId,
+      session_date: formattedDate,
+      day_of_week: item.day,
+      start_time: item.start_time,
+      end_time: item.end_time,
+      duration: duration,
+      created_at: new Date().toISOString(),
+      status: status,
+      court: item.court,
+      level: item.level,
+      booked_by: null,
+      player_id: null,
+      price: 0.00,
+      student_name: item.student || null
+    };
+    
+    // Check if the session already exists
+    const { data: existingSession, error: sessionError } = await supabase
+      .from("coach_sessions")
+      .select("id")
+      .eq("coach_id", coachId)
+      .eq("session_date", formattedDate)
+      .eq("start_time", item.start_time)
+      .eq("court", item.court)
+      .maybeSingle();
+    
+    if (sessionError) {
+      console.error("Error checking for existing session:", sessionError);
+      continue;
+    }
+    
+    if (existingSession) {
+      // Update existing session
+      const { error: updateError } = await supabase
+        .from("coach_sessions")
+        .update({ 
+          end_time: item.end_time,
+          duration: duration,
+          status: status,
+          student_name: item.student || null,
+          level: item.level
+        })
+        .eq("id", existingSession.id);
+      
+      if (updateError) {
+        console.error("Error updating session:", updateError);
+      } else {
+        updated++;
+      }
+    } else {
+      // Insert new session
+      const { error: insertError } = await supabase
+        .from("coach_sessions")
+        .insert([sessionData]);
+      
+      if (insertError) {
+        console.error("Error creating session:", insertError);
+      } else {
+        created++;
+      }
+    }
+  }
+  
+  return { created, updated };
+}
+
+type ReservationResult = {
+  success: boolean;
+  error?: string;
+};
+
+export async function reserveSession({
+  sessionId,
+  userId
+}: {
+  sessionId: string;
+  userId: string;
+}): Promise<ReservationResult> {
+  "use server";
+  
+  try {
+    const supabase = await createClient();
+    
+    // Get the session to verify it's available
+    const { data: session, error: sessionError } = await supabase
+      .from("coach_sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .eq("status", "available")
+      .single();
+    
+    if (sessionError || !session) {
+      console.error("Session not found or not available:", sessionError);
+      return { success: false, error: "Session not available" };
+    }
+    
+    // Get the user to verify they exist
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single();
+    
+    if (userError || !user) {
+      console.error("User not found:", userError);
+      return { success: false, error: "User not found" };
+    }
+    
+    // Get the user's player record if they're a player
+    let playerId = null;
+    if (user.role === "player") {
+      const { data: player } = await supabase
+        .from("players")
+        .select("id")
+        .eq("user_id", userId)
+        .single();
+      
+      if (player) {
+        playerId = player.id;
+      }
+    }
+    
+    // Update the session to booked status
+    const { error: updateError } = await supabase
+      .from("coach_sessions")
+      .update({ 
+        status: "booked", 
+        booked_by: userId,
+        player_id: playerId,
+        booked_at: new Date().toISOString()
+      })
+      .eq("id", sessionId);
+    
+    if (updateError) {
+      console.error("Error updating session:", updateError);
+      return { success: false, error: "Failed to book session" };
+    }
+    
+    // Create a booking record
+    const bookingId = crypto.randomUUID();
+    const { error: bookingError } = await supabase
+      .from("bookings")
+      .insert([{
+        id: bookingId,
+        user_id: userId,
+        session_id: sessionId,
+        status: "confirmed",
+        created_at: new Date().toISOString()
+      }]);
+    
+    if (bookingError) {
+      console.error("Error creating booking:", bookingError);
+      
+      // Rollback the session update if booking creation fails
+      await supabase
+        .from("coach_sessions")
+        .update({ 
+          status: "available", 
+          booked_by: null,
+          player_id: null,
+          booked_at: null
+        })
+        .eq("id", sessionId);
+      
+      return { success: false, error: "Failed to create booking" };
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Error reserving session:", error);
+    return {
+      success: false,
+      error: "Failed to reserve session: " + (error as Error).message
+    };
+  }
+}
+
+export async function getAvailableSessions(
+  date: string,
+  coachId: string,
+  branchId: string,
+  level: string
+) {
+  try {
+    const supabase = await createClient();
+    
+    // Parse the level as an integer
+    const levelNumber = parseInt(level, 10);
+    
+    // Get available sessions
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('coach_sessions')
+      .select(`
+        *,
+        coaches:coach_id (
+          id,
+          name,
+          specialties,
+          available_levels,
+          rating
+        ),
+        branches:branch_id (
+          id,
+          name,
+          location,
+          address
+        ),
+        players:player_id (
+          id,
+          name,
+          level
+        )
+      `)
+      .eq('session_date', date)
+      .eq('coach_id', coachId)
+      .eq('branch_id', branchId)
+      .eq('level', levelNumber)
+      .eq('status', 'available')
+      .order('start_time');
+
+    if (sessionsError) {
+      console.error('Error fetching sessions:', sessionsError);
+      throw new Error('Failed to fetch sessions');
+    }
+
+    // Transform the data into the expected format
+    return sessions.map(session => ({
+      id: session.id,
+      startTime: session.start_time,
+      endTime: session.end_time,
+      status: session.status,
+      coach: session.coaches ? {
+        id: session.coaches.id,
+        name: session.coaches.name,
+        specialties: session.coaches.specialties || [],
+        availableLevels: session.coaches.available_levels || [],
+        rating: session.coaches.rating || 0
+      } : null,
+      branch: session.branches ? {
+        id: session.branches.id,
+        name: session.branches.name,
+        location: session.branches.location,
+        address: session.branches.address
+      } : null,
+      player: session.players ? {
+        id: session.players.id,
+        name: session.players.name,
+        level: session.players.level
+      } : null,
+      sessionDuration: session.session_duration || 45,
+      court: session.court || '1',
+      level: session.level || 1
+    }));
+  } catch (error) {
+    console.error('Error in getAvailableSessions:', error);
+    throw error;
   }
 }

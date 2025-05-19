@@ -1,267 +1,370 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { createClient } from "@/utils/supabase/client";
 import DashboardNavbar from "@/components/dashboard-navbar";
+import { 
+  Card, 
+  CardHeader, 
+  CardTitle, 
+  CardContent, 
+  CardFooter,
+  CardDescription 
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { createClient } from "../../../../../utils/supabase/server";
-import { redirect } from "next/navigation";
-import { ArrowLeft, Mail, Calendar, Phone, User } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { 
+  UserCircle, 
+  Mail, 
+  Calendar, 
+  ArrowLeft, 
+  Check, 
+  X, 
+  Shield, 
+  CalendarDays,
+  User,
+  Badge as BadgeIcon,
+  Clock
+} from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
-import { DeleteUserButton, UpdateRoleButton } from "./client-actions";
+import { Badge } from "@/components/ui/badge";
 
-export default async function ViewUserPage({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const userId = params.id;
-  const supabase = await createClient();
+export default function UserDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const userId = params.id as string;
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
-  const {
-    data: { user: currentUser },
-  } = await supabase.auth.getUser();
+  const supabase = createClient();
 
-  if (!currentUser) {
-    return redirect("/sign-in");
-  }
+  useEffect(() => {
+    fetchUserDetails();
+  }, [userId]);
 
-  // Get current user data to check if admin
-  let { data: currentUserData, error: currentUserError } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", currentUser.id);
+  const fetchUserDetails = async () => {
+    setLoading(true);
+    try {
+      // Check if current user is admin
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      
+      if (!currentUser) {
+        router.push("/sign-in");
+        return;
+      }
+      
+      // Get user data
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", userId)
+        .single();
+        
+      if (userError) {
+        throw userError;
+      }
+      
+      setUser(userData);
+    } catch (error) {
+      console.error("Error fetching user details:", error);
+      setError("Could not load user details");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (
-    currentUserError ||
-    !currentUserData ||
-    currentUserData.length === 0 ||
-    currentUserData[0]?.role !== "admin"
-  ) {
-    return redirect("/dashboard");
-  }
+  const handleApprove = async () => {
+    setLoadingAction(true);
+    setActionMessage(null);
+    
+    try {
+      // First update the auth.users.raw_app_meta_data directly
+      const { error: authUpdateError } = await supabase.rpc('admin_update_user_role', {
+        user_id: userId,
+        update_approved: true
+      });
+      
+      if (authUpdateError) {
+        console.error("Error updating auth user:", authUpdateError);
+        throw new Error("Failed to update authentication data: " + authUpdateError.message);
+      }
+      
+      // Then update the user record in the database
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({ 
+          approved: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", userId)
+        .eq("role", "coach");
+        
+      if (updateError) {
+        console.error("Error updating user:", updateError);
+        throw new Error("Failed to update user in database: " + updateError.message);
+      }
+      
+      // Try a more direct approach as fallback
+      const response = await fetch('/api/admin/approve-coach', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ coachId: userId }),
+      });
+      
+      if (!response.ok) {
+        const responseData = await response.json();
+        console.log("API response:", responseData);
+      }
+      
+      setActionMessage({
+        type: "success",
+        message: "Coach account approved successfully"
+      });
+      
+      // Update local state
+      setUser({
+        ...user,
+        approved: true
+      });
+      
+    } catch (error) {
+      console.error("Error approving coach:", error);
+      setActionMessage({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unknown error occurred"
+      });
+    } finally {
+      setLoadingAction(false);
+    }
+  };
 
-  // Get user data for the requested user ID
-  let { data: userData, error: userError } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", userId)
-    .limit(1);
-
-  if (userError || !userData || userData.length === 0) {
-    console.error("Error or empty result when fetching user data:", {
-      userError,
-      userData,
-    });
-    console.error("Error fetching user data:", userError);
+  if (loading) {
     return (
       <>
         <DashboardNavbar />
-        <main className="w-full bg-gray-50 min-h-screen">
-          <div className="container mx-auto px-4 py-8">
-            <div className="flex items-center gap-2 mb-6">
-              <Link
-                href="/dashboard/admin/users"
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Link>
-              <h1 className="text-2xl font-bold text-black">User Not Found</h1>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <p className="text-black">
-                The requested user could not be found.
-              </p>
-              <Link href="/dashboard/admin/users" className="mt-4 inline-block">
-                <Button>Back to Users</Button>
-              </Link>
-            </div>
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-red-600"></div>
           </div>
-        </main>
+        </div>
       </>
     );
   }
 
-  // Get role-specific data
-  let roleData = null;
-  const userRecord = userData[0];
-  if (userRecord?.role === "coach") {
-    const { data, error: coachError } = await supabase
-      .from("coaches")
-      .select("*")
-      .eq("id", userId)
-      .limit(1);
-    if (!coachError && data && data.length > 0) roleData = data[0];
-  } else if (userRecord?.role === "player") {
-    const { data, error: playerError } = await supabase
-      .from("players")
-      .select("*")
-      .eq("id", userId)
-      .limit(1);
-    if (!playerError && data && data.length > 0) roleData = data[0];
+  if (error) {
+    return (
+      <>
+        <DashboardNavbar />
+        <div className="container mx-auto px-4 py-8">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+            <p>{error}</p>
+            <Button 
+              onClick={fetchUserDetails} 
+              variant="outline" 
+              size="sm" 
+              className="mt-2"
+            >
+              Try Again
+            </Button>
+          </div>
+        </div>
+      </>
+    );
   }
 
   return (
     <>
       <DashboardNavbar />
-      <main className="w-full bg-gray-50 min-h-screen">
-        <div className="container mx-auto px-4 py-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <Link
-                href="/dashboard/admin/users"
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Link>
-              <h1 className="text-2xl font-bold text-black">User Profile</h1>
-            </div>
-            <div className="flex gap-2">
-              <Link href={`/dashboard/admin/users/${userId}/edit`}>
-                <Button className="bg-primary hover:bg-primary/90">
-                  Edit User
-                </Button>
-              </Link>
-              <DeleteUserButton userId={userId} />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-            <div className="flex flex-col md:flex-row items-start gap-6">
-              <div className="relative w-24 h-24 rounded-full overflow-hidden bg-primary/10">
-                {userRecord.avatar_url ? (
-                  <Image
-                    src={userRecord.avatar_url}
-                    alt={userRecord.full_name || "User"}
-                    fill
-                    className="object-cover"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center text-primary font-bold text-2xl">
-                    {userRecord.full_name
-                      ?.split(" ")
-                      .map((name: string) => name[0])
-                      .join("") || <User className="w-12 h-12" />}
-                  </div>
-                )}
-              </div>
-              <div className="flex-1">
-                <h2 className="text-2xl font-bold text-black">
-                  {userRecord.full_name}
-                </h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <Mail className="w-4 h-4 text-gray-500" />
-                  <p className="text-black">{userRecord.email}</p>
-                </div>
-                {userRecord.phone && (
-                  <div className="flex items-center gap-2 mt-1">
-                    <Phone className="w-4 h-4 text-gray-500" />
-                    <p className="text-black">{userRecord.phone}</p>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 mt-1">
-                  <Calendar className="w-4 h-4 text-gray-500" />
-                  <p className="text-black">
-                    Joined:{" "}
-                    {new Date(userRecord.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span
-                    className={`px-2 py-1 text-xs rounded-full ${
-                      userRecord.role === "admin"
-                        ? "bg-purple-100 text-purple-800"
-                        : userRecord.role === "coach"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-primary/20 text-primary"
-                    }`}
-                  >
-                    {userRecord.role?.charAt(0).toUpperCase() +
-                      userRecord.role?.slice(1) || "User"}
-                  </span>
-                  <UpdateRoleButton
-                    userId={userId}
-                    currentRole={userRecord.role}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Role-specific information */}
-          {userRecord?.role === "coach" && roleData && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-              <h2 className="text-xl font-semibold mb-4 text-black">
-                Coach Information
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="font-medium text-gray-700">Specialization</h3>
-                  <p className="text-black">
-                    {roleData.specialization || "Not specified"}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-700">
-                    Years of Experience
-                  </h3>
-                  <p className="text-black">
-                    {roleData.years_experience || 0} years
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-700">Hourly Rate</h3>
-                  <p className="text-black">
-                    ${roleData.hourly_rate || 0}/hour
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-700">Bio</h3>
-                  <p className="text-black">
-                    {roleData.bio || "No bio available"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {userRecord?.role === "player" && roleData && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-              <h2 className="text-xl font-semibold mb-4 text-black">
-                Player Information
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="font-medium text-gray-700">Skill Level</h3>
-                  <p className="text-black">
-                    {roleData.skill_level || "Not specified"}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-700">Years Playing</h3>
-                  <p className="text-black">
-                    {roleData.years_playing || 0} years
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-700">Goals</h3>
-                  <p className="text-black">
-                    {roleData.goals || "No goals specified"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3">
-            <Link href="/dashboard/admin/users">
-              <Button variant="outline">Back to Users</Button>
-            </Link>
-            <Link href={`/dashboard/admin/users/${userId}/edit`}>
-              <Button className="bg-primary hover:bg-primary/90">
-                Edit User
-              </Button>
-            </Link>
-          </div>
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex items-center gap-2 mb-6">
+          <Link
+            href="/dashboard/admin/users"
+            className="text-gray-500 hover:text-gray-700"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <h1 className="text-2xl font-bold">User Details</h1>
         </div>
-      </main>
+
+        {actionMessage && (
+          <div className={`mb-6 p-4 rounded-md ${
+            actionMessage.type === "success" ? 
+            "bg-green-50 border border-green-200 text-green-700" : 
+            "bg-red-50 border border-red-200 text-red-700"
+          }`}>
+            <p>{actionMessage.message}</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* User Information Card */}
+          <Card className="md:col-span-1">
+            <CardHeader>
+              <CardTitle>User Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col items-center">
+                <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center mb-4">
+                  <UserCircle className="w-16 h-16 text-gray-400" />
+                </div>
+                <h2 className="text-xl font-semibold">{user?.full_name || "Unnamed User"}</h2>
+                <p className="text-gray-500">{user?.email}</p>
+              </div>
+
+              <div className="space-y-3 mt-6">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500 flex items-center">
+                    <BadgeIcon className="w-4 h-4 mr-2" />
+                    Role
+                  </span>
+                  <Badge className={`${
+                    user?.role === "admin" ? "bg-purple-100 text-purple-800" :
+                    user?.role === "coach" ? "bg-green-100 text-green-800" :
+                    "bg-blue-100 text-blue-800"
+                  }`}>
+                    {user?.role?.charAt(0).toUpperCase() + user?.role?.slice(1) || "User"}
+                  </Badge>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500 flex items-center">
+                    <Shield className="w-4 h-4 mr-2" />
+                    Status
+                  </span>
+                  <Badge className={user?.approved ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}>
+                    {user?.approved ? "Approved" : "Pending Approval"}
+                  </Badge>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500 flex items-center">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Joined
+                  </span>
+                  <span className="text-sm">
+                    {new Date(user?.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                
+                {user?.role === "coach" && (user?.approved === false) && (
+                  <div className="pt-4">
+                    <Button 
+                      onClick={handleApprove}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white"
+                      disabled={loadingAction}
+                    >
+                      {loadingAction ? (
+                        <div className="flex items-center">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                          Approving...
+                        </div>
+                      ) : (
+                        <div className="flex items-center">
+                          <Check className="w-4 h-4 mr-2" />
+                          Approve Coach
+                        </div>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Profile & Settings */}
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <CardTitle>Account Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="profile">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="profile">Profile</TabsTrigger>
+                  <TabsTrigger value="schedules">Schedules</TabsTrigger>
+                  <TabsTrigger value="sessions">Sessions</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="profile" className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Full Name</h3>
+                      <p className="p-2 bg-gray-100 rounded-md">{user?.full_name || "Not set"}</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Email</h3>
+                      <p className="p-2 bg-gray-100 rounded-md">{user?.email}</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Role</h3>
+                      <p className="p-2 bg-gray-100 rounded-md">
+                        {user?.role?.charAt(0).toUpperCase() + user?.role?.slice(1) || "User"}
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Status</h3>
+                      <p className="p-2 bg-gray-100 rounded-md">
+                        {user?.approved ? "Approved" : "Pending Approval"}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="pt-4">
+                    <Link href={`/dashboard/admin/users/${user?.id}/edit`}>
+                      <Button className="bg-blue-600 hover:bg-blue-700">
+                        Edit Profile
+                      </Button>
+                    </Link>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="schedules">
+                  {user?.role === "coach" ? (
+                    <div>
+                      <p className="mb-4">Coach's weekly schedule:</p>
+                      <Link href={`/dashboard/admin/coach-schedule?coach=${user?.id}`}>
+                        <Button>
+                          <CalendarDays className="w-4 h-4 mr-2" />
+                          View Schedule
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No schedule available for this user type.</p>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="sessions">
+                  {user?.role === "coach" ? (
+                    <div>
+                      <p className="mb-4">Sessions assigned to this coach:</p>
+                      <Link href={`/dashboard/admin/sessions?coach=${user?.id}`}>
+                        <Button>
+                          <Clock className="w-4 h-4 mr-2" />
+                          View Sessions
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No sessions available for this user type.</p>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </>
   );
 }

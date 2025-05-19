@@ -122,12 +122,12 @@ export async function POST(request: NextRequest) {
       const { count } = await supabase
         .from("players")
         .select("*", { count: "exact", head: true })
-        .eq("id", userId);
+        .eq("user_id", userId);
 
       if (count === 0) {
         // Create new player record
         await supabase.from("players").insert({
-          id: userId,
+          user_id: userId,
           skill_level: skillLevel,
           years_playing: yearsPlaying,
           goals,
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
             goals,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", userId);
+          .eq("user_id", userId);
       }
     }
 

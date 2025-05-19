@@ -1,51 +1,58 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
 
+export async function middleware(request: NextRequest) {
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return req.cookies.getAll().map(({ name, value }) => ({
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          response.cookies.set({
             name,
             value,
-          }))
+            ...options,
+          });
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            req.cookies.set(name, value)
-            res.cookies.set(name, value, options)
-          })
+        remove(name: string, options: CookieOptions) {
+          response.cookies.set({
+            name,
+            value: "",
+            ...options,
+            maxAge: 0,
+          });
         },
       },
     }
-  )
+  );
 
-  // Refresh session if expired - required for Server Components
-  const { data: { session }, error } = await supabase.auth.getSession()
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (error) {
-    console.error('Auth session error:', error)
+  // If user is not signed in and the current path is not /auth/login,
+  // redirect the user to /auth/login
+  if (!session && !request.nextUrl.pathname.startsWith("/auth")) {
+    return NextResponse.redirect(new URL("/auth/login", request.url));
   }
 
-  return res
+  // If user is signed in and the current path is /auth/login,
+  // redirect the user to /
+  if (session && request.nextUrl.pathname.startsWith("/auth")) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  return response;
 }
 
 // Ensure the middleware is only called for relevant paths
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public (public files)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|public|api).*)',
-  ],
-}
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|public/).*)"] as string[],
+};

@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     }
 
     if (!existingBranch) {
+      // Create the branch
       const newBranchId = uuidv4();
       const { error: createBranchError } = await supabase
         .from("branches")
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
           name: "Royal British School",
           location: "New Cairo",
           address: "Royal British School, New Cairo",
-          is_members_only: false
+          is_members_only: false,
         });
 
       if (createBranchError) {
@@ -45,188 +46,152 @@ export async function POST(request: Request) {
       branchId = existingBranch.id;
     }
 
-    // Define coach data to create
-    const coachesToCreate = [
-      { name: "Ahmed Fakhry", email: "ahmed.fakhry@squash.academy" },
-      { name: "Ahmed Mahrous", email: "ahmed.mahrous@squash.academy" },
-      { name: "Ahmed Magdy", email: "ahmed.magdy@squash.academy" },
-      { name: "Alaa Taha", email: "alaa.taha@squash.academy" },
-      { name: "Omar Zaki", email: "omar.zaki@squash.academy" },
-      { name: "Abdullah", email: "abdullah@squash.academy" }
-    ];
+    // Get all coaches that exist in the users table
+    const { data: existingCoaches, error: coachesError } = await supabase
+      .from("users")
+      .select("id, full_name, email")
+      .eq("role", "coach");
 
-    const createdCoaches = [];
-    
-    // Create coaches if they don't exist
-    for (const coach of coachesToCreate) {
-      // Check if coach exists by email
-      const { data: existingCoach, error: coachCheckError } = await supabase
-        .from("users")
-        .select("id, full_name")
-        .or(`email.eq.${coach.email},full_name.ilike.%${coach.name}%`)
-        .eq("role", "coach")
-        .maybeSingle();
-
-      if (coachCheckError) {
-        console.error(`Error checking coach ${coach.name}:`, coachCheckError);
-        continue;
-      }
-
-      let coachId: string;
-
-      if (!existingCoach) {
-        // Create coach in users table
-        const newCoachId = uuidv4();
-        const { error: createUserError } = await supabase
-          .from("users")
-          .insert({
-            id: newCoachId,
-            full_name: coach.name,
-            email: coach.email,
-            role: "coach",
-            approved: true
-          });
-
-        if (createUserError) {
-          console.error(`Error creating user for coach ${coach.name}:`, createUserError);
-          continue;
-        }
-
-        // Create coach in coaches table
-        const { error: createCoachError } = await supabase
-          .from("coaches")
-          .insert({
-            id: newCoachId,
-            name: coach.name,
-            specialties: ["Squash Training"],
-            available_levels: ["Beginner", "Intermediate", "Advanced"],
-            rating: 5.0
-          });
-
-        if (createCoachError) {
-          console.error(`Error creating coach record for ${coach.name}:`, createCoachError);
-          continue;
-        }
-
-        coachId = newCoachId;
-      } else {
-        coachId = existingCoach.id;
-      }
-
-      createdCoaches.push({
-        id: coachId,
-        name: coach.name
-      });
+    if (coachesError) {
+      return NextResponse.json(
+        { error: `Error fetching coaches: ${coachesError.message}` },
+        { status: 500 }
+      );
     }
 
-    // Default schedules for each coach
-    const defaultSchedules = [
-      {
-        coach: "Ahmed Fakhry",
-        days: ["Sunday", "Tuesday"],
-        start_time: "15:30",
-        end_time: "21:00",
-        session_duration: 45
-      },
-      {
-        coach: "Ahmed Mahrous",
-        days: ["Saturday", "Tuesday"],
-        start_time: "10:00",
-        end_time: "21:30",
-        session_duration: 45
-      },
-      {
-        coach: "Alaa Taha",
-        days: ["Monday", "Wednesday"],
-        start_time: "15:30",
-        end_time: "21:00",
-        session_duration: 45
-      },
-      {
-        coach: "Omar Zaki",
-        days: ["Thursday", "Friday", "Saturday"],
-        start_time: "10:00",
-        end_time: "21:30",
-        session_duration: 45
-      },
-      {
-        coach: "Abdullah",
-        days: ["Sunday", "Wednesday"],
-        start_time: "15:30",
-        end_time: "21:00",
-        session_duration: 45
-      },
-      {
-        coach: "Ahmed Magdy",
-        days: ["Monday"],
-        start_time: "15:30",
-        end_time: "21:00",
-        session_duration: 45
-      }
-    ];
+    // Get existing schedules to avoid duplicates
+    const { data: existingSchedules, error: schedulesError } = await supabase
+      .from("coach_schedules")
+      .select("coach_id, branch_id, day_of_week");
 
-    const createdSchedules = [];
-    
-    // Create schedules for each coach
-    for (const schedule of defaultSchedules) {
-      const coach = createdCoaches.find(c => c.name === schedule.coach);
+    if (schedulesError) {
+      return NextResponse.json(
+        { error: `Error fetching existing schedules: ${schedulesError.message}` },
+        { status: 500 }
+      );
+    }
+
+    // Schedule data by coach name
+    const scheduleData = {
+      "Ahmed Fakhry": [
+        { day: "Sunday", startTime: "16:30", endTime: "21:45", duration: 45 },
+        { day: "Tuesday", startTime: "16:30", endTime: "21:45", duration: 45 }
+      ],
+      "Ahmed Mahrous": [
+        { day: "Saturday", startTime: "10:00", endTime: "21:30", duration: 45 },
+        { day: "Tuesday", startTime: "16:30", endTime: "21:45", duration: 45 }
+      ],
+      "Alaa Taha": [
+        { day: "Monday", startTime: "16:30", endTime: "21:45", duration: 45 }
+      ],
+      "Ahmed Maher": [
+        { day: "Sunday", startTime: "16:30", endTime: "21:45", duration: 45 },
+        { day: "Wednesday", startTime: "15:30", endTime: "21:30", duration: 45 }
+      ],
+      "Omar Zaki": [
+        { day: "Thursday", startTime: "15:30", endTime: "21:30", duration: 45 },
+        { day: "Friday", startTime: "13:30", endTime: "16:30", duration: 45 },
+        { day: "Saturday", startTime: "10:00", endTime: "21:30", duration: 45 }
+      ],
+      "Abdelrahman Dahy": [
+        { day: "Monday", startTime: "16:30", endTime: "21:45", duration: 45 },
+        { day: "Wednesday", startTime: "15:30", endTime: "21:30", duration: 45 }
+      ]
+    };
+
+    // Track results and errors
+    const results = {
+      success: 0,
+      errors: [] as string[],
+      createdSchedules: [] as any[],
+      missingCoaches: [] as string[]
+    };
+
+    // Process each coach
+    for (const [coachName, schedules] of Object.entries(scheduleData)) {
+      // Find the coach ID from existing coaches
+      const coach = existingCoaches?.find(c => 
+        c.full_name?.toLowerCase() === coachName.toLowerCase()
+      );
+
       if (!coach) {
-        console.error(`Coach ${schedule.coach} not found in created coaches`);
+        results.missingCoaches.push(coachName);
         continue;
       }
 
-      for (const day of schedule.days) {
-        // Check if schedule already exists
-        const { data: existingSchedule, error: scheduleCheckError } = await supabase
-          .from("coach_schedules")
-          .select("id")
-          .eq("coach_id", coach.id)
-          .eq("branch_id", branchId)
-          .eq("day_of_week", day)
-          .maybeSingle();
+      const coachId = coach.id;
 
-        if (scheduleCheckError) {
-          console.error(`Error checking schedule for ${coach.name} on ${day}:`, scheduleCheckError);
+      // Create schedules for this coach
+      for (const schedule of schedules) {
+        // Check if this schedule already exists
+        const isDuplicate = existingSchedules?.some(
+          es => 
+            es.coach_id === coachId && 
+            es.branch_id === branchId && 
+            es.day_of_week === schedule.day
+        );
+
+        if (isDuplicate) {
+          console.log(`Schedule for ${coachName} on ${schedule.day} already exists, skipping`);
           continue;
         }
 
-        if (!existingSchedule) {
-          const { error: createScheduleError } = await supabase
-            .from("coach_schedules")
-            .insert({
-              id: uuidv4(),
-              coach_id: coach.id,
-              branch_id: branchId,
-              day_of_week: day,
-              start_time: schedule.start_time,
-              end_time: schedule.end_time,
-              session_duration: schedule.session_duration
-            });
+        // Create a new schedule
+        const scheduleId = uuidv4();
+        const { error: createError } = await supabase
+          .from("coach_schedules")
+          .insert({
+            id: scheduleId,
+            coach_id: coachId,
+            branch_id: branchId,
+            day_of_week: schedule.day,
+            start_time: schedule.startTime,
+            end_time: schedule.endTime,
+            session_duration: schedule.duration,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
 
-          if (createScheduleError) {
-            console.error(`Error creating schedule for ${coach.name} on ${day}:`, createScheduleError);
-            continue;
-          }
-
-          createdSchedules.push({
-            coach: coach.name,
-            day,
-            time: `${schedule.start_time} - ${schedule.end_time}`
+        if (createError) {
+          results.errors.push(`Error creating schedule for ${coachName} on ${schedule.day}: ${createError.message}`);
+        } else {
+          results.success++;
+          results.createdSchedules.push({
+            coach: coachName,
+            day: schedule.day,
+            time: `${schedule.startTime} - ${schedule.endTime}`
           });
         }
+      }
+    }
+
+    // Now generate sessions based on these schedules
+    if (results.success > 0) {
+      try {
+        const { error: generateError } = await supabase.rpc('regenerate_coach_sessions_for_next_days', {
+          days_to_generate: 30
+        });
+        
+        if (generateError) {
+          results.errors.push(`Error generating sessions: ${generateError.message}`);
+        }
+      } catch (error) {
+        results.errors.push(`Exception generating sessions: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
     return NextResponse.json({
       success: true,
-      branch: { id: branchId, name: "Royal British School" },
-      coaches: createdCoaches,
-      schedules: createdSchedules
+      message: `Created ${results.success} schedules successfully`,
+      results
     });
   } catch (error) {
-    console.error("Error initializing schedules:", error);
+    console.error("Error in initialize-schedules:", error);
     return NextResponse.json(
-      { error: `Server error: ${error instanceof Error ? error.message : 'Unknown error'}` },
+      { 
+        success: false, 
+        error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` 
+      },
       { status: 500 }
     );
   }

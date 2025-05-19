@@ -8,7 +8,7 @@ VALUES
   (uuid_generate_v4(), 'alaa.taha@rasa.com', 'Alaa Taha', 'coach', NOW()),
   (uuid_generate_v4(), 'ahmed.maher@rasa.com', 'Ahmed Maher', 'coach', NOW()),
   (uuid_generate_v4(), 'omar.zaki@rasa.com', 'Omar Zaki', 'coach', NOW()),
-  (uuid_generate_v4(), 'hussien.amr@rasa.com', 'Hussien Amr', 'coach', NOW());
+  (uuid_generate_v4(), 'abdelrahman.dahy@rasa.com', 'Abdelrahman Dahy', 'coach', NOW());
 
 -- Get the Royal British School branch ID (all coaches are at this branch)
 DO $$
@@ -28,7 +28,7 @@ BEGIN
          full_name = 'Alaa Taha' OR 
          full_name = 'Ahmed Maher' OR 
          full_name = 'Omar Zaki' OR 
-         full_name = 'Hussien Amr');
+         full_name = 'Abdelrahman Dahy');
 
   -- Add schedules for each coach
   -- Ahmed Fakhry: Sunday and Tuesday, 4:30-9:45, 45 min sessions
@@ -81,10 +81,10 @@ BEGIN
   SELECT id, royal_british_id, 'Saturday', '10:00', '21:30', 45
   FROM users WHERE full_name = 'Omar Zaki';
   
-  -- Hussien Amr: Wednesday 3:30-9:30, 45 min sessions
+  -- Abdelrahman Dahy: Wednesday 3:30-9:30, 45 min sessions
   INSERT INTO coach_schedules (coach_id, branch_id, day_of_week, start_time, end_time, session_duration)
   SELECT id, royal_british_id, 'Wednesday', '15:30', '21:30', 45
-  FROM users WHERE full_name = 'Hussien Amr';
+  FROM users WHERE full_name = 'Abdelrahman Dahy';
   
   -- Now create available session slots for each coach based on their schedules
   -- We'll generate sessions for the next 4 weeks

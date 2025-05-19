@@ -68,7 +68,7 @@ export default async function PlayerDashboard() {
       const { error: playerCreateError } = await supabase
         .from("players")
         .upsert({
-          id: user.id,
+          user_id: user.id,
           skill_level: "Beginner",
           years_playing: 0,
           goals: "Improve squash skills"
@@ -100,14 +100,14 @@ export default async function PlayerDashboard() {
     const { count, error: countError } = await supabase
       .from("players")
       .select("*", { count: "exact", head: true })
-      .eq("id", user.id);
+      .eq("user_id", user.id);
 
     // Only try to fetch if record exists
     if (!countError && count && count > 0) {
       const { data, error } = await supabase
         .from("players")
         .select("*")
-        .eq("id", user.id)
+        .eq("user_id", user.id)
         .single();
 
       if (!error) {
@@ -120,7 +120,7 @@ export default async function PlayerDashboard() {
       const { data, error } = await supabase
         .from("players")
         .upsert({
-          id: user.id,
+          user_id: user.id,
           skill_level: "Beginner",
           years_playing: 0,
           goals: "Improve squash skills",
@@ -146,7 +146,10 @@ export default async function PlayerDashboard() {
         start_time,
         end_time,
         status,
-        coach:users!coach_sessions_coach_id_fkey(id, full_name),
+        coach:coaches!coach_sessions_coach_id_fkey(
+          id,
+          users:users!coaches_id_fkey(id, full_name)
+        ),
         branch:branches!coach_sessions_branch_id_fkey(id, name)
       `)
       .eq("player_id", user.id)
@@ -161,7 +164,7 @@ export default async function PlayerDashboard() {
         session_date: session.session_date,
         start_time: session.start_time,
         end_time: session.end_time,
-        coach_name: session.coach?.full_name || "Unknown Coach",
+        coach_name: session.coach?.users?.full_name || "Unknown Coach",
         branch_name: session.branch?.name || "Unknown Location",
         status: session.status,
       }));

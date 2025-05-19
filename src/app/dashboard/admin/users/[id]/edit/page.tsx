@@ -8,11 +8,16 @@ import { redirect } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 import Link from "next/link";
 
-export default async function EditUserPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+// Define correct types for Next.js Page
+type Params = {
+  id: string;
+};
+
+type Props = {
+  params: Params;
+};
+
+export default async function EditUserPage({ params }: Props) {
   const userId = params.id;
   const supabase = await createClient();
 
@@ -260,18 +265,12 @@ export default async function EditUserPage({
                   </div>
                 )}
 
-                <div className="flex justify-end gap-3 pt-4">
+                <div className="flex justify-end space-x-4 pt-4">
                   <Link href={`/dashboard/admin/users/${userId}`}>
-                    <Button variant="outline" type="button">
-                      Cancel
-                    </Button>
+                    <Button variant="outline">Cancel</Button>
                   </Link>
-                  <Button
-                    type="submit"
-                    className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save Changes
+                  <Button type="submit" className="flex items-center gap-2">
+                    <Save className="w-4 h-4" /> Save Changes
                   </Button>
                 </div>
               </div>

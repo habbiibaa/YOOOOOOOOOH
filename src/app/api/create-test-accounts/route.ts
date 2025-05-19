@@ -181,13 +181,13 @@ export async function GET() {
           // Check if player details exist
           const { data: existingPlayer } = await supabase
             .from("players")
-            .select("id")
-            .eq("id", existingUser.id)
+            .select("user_id")
+            .eq("user_id", existingUser.id)
             .single();
 
           if (!existingPlayer) {
             await supabase.from("players").insert({
-              id: existingUser.id,
+              user_id: existingUser.id,
               skill_level: "Intermediate",
               years_playing: 3,
               goals: "Improve technique and compete in local tournaments",
@@ -212,7 +212,7 @@ export async function GET() {
 
       // Add player details
       await supabase.from("players").upsert({
-        id: playerData.user.id,
+        user_id: playerData.user.id,
         skill_level: "Intermediate",
         years_playing: 3,
         goals: "Improve technique and compete in local tournaments",

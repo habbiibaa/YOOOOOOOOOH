@@ -63,7 +63,11 @@ CREATE TABLE IF NOT EXISTS public.coach_sessions (
   session_date DATE NOT NULL,
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
-  status TEXT DEFAULT 'available'
+  status TEXT DEFAULT 'available',
+  level TEXT NOT NULL DEFAULT '1',
+  price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.clients (
@@ -74,13 +78,12 @@ CREATE TABLE IF NOT EXISTS public.clients (
 );
 
 CREATE TABLE IF NOT EXISTS public.training_levels (
-  id SERIAL PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   level_number INTEGER NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
-  price NUMERIC NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.training_slots (
@@ -99,7 +102,9 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   slot_id INTEGER NOT NULL REFERENCES public.training_slots(id) ON DELETE CASCADE,
   booking_date TIMESTAMPTZ NOT NULL,
   confirmed BOOLEAN DEFAULT FALSE,
-  payment_status TEXT DEFAULT 'pending'
+  payment_status TEXT DEFAULT 'pending',
+  level TEXT NOT NULL DEFAULT '1',
+  price DECIMAL(10,2) NOT NULL DEFAULT 0.00
 );
 
 CREATE TABLE IF NOT EXISTS public.subscriptions (
@@ -204,4 +209,25 @@ CREATE INDEX idx_subscriptions_user_id ON public.subscriptions(user_id);
 CREATE INDEX idx_subscriptions_status ON public.subscriptions(status);
 
 CREATE INDEX idx_player_videos_user_id ON public.player_videos(user_id);
-CREATE INDEX idx_player_videos_status ON public.player_videos(status); 
+CREATE INDEX idx_player_videos_status ON public.player_videos(status);
+
+-- Add initial training levels
+INSERT INTO public.training_levels (level_number, name, description) VALUES
+(1, 'Beginner', 'For players who are new to tennis or have limited experience'),
+(2, 'Intermediate', 'For players with basic skills looking to improve their game'),
+(3, 'Advanced', 'For experienced players looking to refine their technique'),
+(4, 'Professional', 'For competitive players and professionals');
+
+-- Add foreign key constraint for level
+ALTER TABLE public.coach_sessions
+ADD CONSTRAINT fk_coach_sessions_level
+FOREIGN KEY (level)
+REFERENCES public.training_levels(level_number)
+ON DELETE RESTRICT;
+
+-- Add foreign key constraint for level
+ALTER TABLE public.bookings
+ADD CONSTRAINT fk_bookings_level
+FOREIGN KEY (level)
+REFERENCES public.training_levels(level_number)
+ON DELETE RESTRICT; 

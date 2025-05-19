@@ -90,7 +90,7 @@ export default function CoachScheduleManager() {
     end_time: "",
     session_duration: 45,
   });
-  const [selectedCoach, setSelectedCoach] = useState<string>("all");
+  const [selectedCoach, setSelectedCoach] = useState<string | null>(null);
   const [selectedBranch, setSelectedBranch] = useState<string>("all");
   const [selectedDay, setSelectedDay] = useState<string>("all");
 
@@ -601,13 +601,23 @@ export default function CoachScheduleManager() {
           const startTime = convertMinutesToTime(currentMinutes);
           const endTime = convertMinutesToTime(currentMinutes + duration);
           
+          // Calculate proper day of week based on the date
+          const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+          
           sessions.push({
+            id: uuidv4(),
             coach_id: schedule.coach_id,
             branch_id: schedule.branch_id,
+            coach_schedule_id: schedule.id,
             session_date: sessionDate,
             start_time: startTime,
             end_time: endTime,
             status: "available",
+            player_id: null,
+            user_id: null,
+            day_of_week: dayOfWeek, // Add day of week based on actual date
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           });
           
           currentMinutes += duration;
@@ -616,19 +626,103 @@ export default function CoachScheduleManager() {
       
       // Insert sessions into database
       if (sessions.length > 0) {
-        const { error } = await supabase
-          .from("coach_sessions")
-          .insert(sessions);
-          
-        if (error) throw error;
+        console.log(`Inserting ${sessions.length} sessions into database. First session:`, sessions[0]);
         
-        alert(`Created ${sessions.length} sessions for ${coach.name} at ${branch.name}`);
+        // First try the direct server API endpoint (bypasses approval checks)
+        try {
+          console.log("Using direct-sessions API for admin bypass...");
+          const directResponse = await fetch('/api/admin/direct-sessions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              sessions: sessions
+            }),
+          });
+          
+          // Safe response parsing
+          let directResult;
+          let responseText = "";
+          
+          try {
+            responseText = await directResponse.text();
+            try {
+              directResult = JSON.parse(responseText);
+            } catch (jsonError) {
+              console.error("JSON parse error:", jsonError);
+              console.error("Response text:", responseText);
+              throw new Error("Invalid JSON response from server");
+            }
+          } catch (textError) {
+            console.error("Error getting response text:", textError);
+            throw new Error(`Server error (status: ${directResponse.status}). Could not read response.`);
+          }
+          
+          if (!directResponse.ok) {
+            console.error("Direct API error:", directResult);
+            throw new Error(directResult?.error || `Direct API error: ${directResponse.status}`);
+          }
+          
+          console.log("Direct API success:", directResult);
+          alert(`Created ${directResult?.count || sessions.length} sessions for ${coach.name} at ${branch.name}`);
+          return;
+        } catch (directError) {
+          console.error("Direct API failed, trying regular API:", directError);
+          // Fall through to try regular API
+        }
+        
+        // Try using the regular API endpoint if direct fails
+        try {
+          const response = await fetch('/api/admin/create-sessions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              sessions: sessions
+            }),
+          });
+          
+          let errorData;
+          try {
+            errorData = await response.json();
+          } catch (parseError) {
+            console.error("Error parsing response:", parseError);
+            throw new Error(`Server error (status: ${response.status}). Failed to parse response.`);
+          }
+          
+          if (!response.ok) {
+            console.error("API error response:", errorData);
+            throw new Error(errorData.error || `Server error: ${response.status}`);
+          }
+          
+          const result = errorData; // Already parsed above
+          console.log("Server response:", result);
+          alert(`Created ${sessions.length} sessions for ${coach.name} at ${branch.name}`);
+        } catch (fetchError) {
+          console.error("API error:", fetchError);
+          
+          // Fallback to direct database insert if API fails
+          console.log("Falling back to direct database insert...");
+          const { data, error } = await supabase
+            .from("coach_sessions")
+            .insert(sessions);
+            
+          if (error) {
+            console.error("Database error details:", error);
+            throw new Error(error.message || "Unknown database error");
+          }
+          
+          alert(`Created ${sessions.length} sessions for ${coach.name} at ${branch.name}`);
+        }
       } else {
         alert("No sessions could be generated for the selected time range");
       }
     } catch (error) {
       console.error("Error generating sessions:", error);
-      alert("Failed to generate sessions. Please try again.");
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      alert(`Failed to generate sessions: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -758,6 +852,53 @@ Refreshing data...`);
     }
   };
 
+  // Add a new function to allow self-approval for admins
+  const approveAdminSelf = async () => {
+    try {
+      setLoading(true);
+      
+      const response = await fetch('/api/admin/approve-self', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Use the safer text() then JSON.parse approach
+      let responseText;
+      let result;
+      
+      try {
+        responseText = await response.text();
+        try {
+          result = JSON.parse(responseText);
+        } catch (jsonError) {
+          console.error("Error parsing JSON:", jsonError);
+          console.error("Response text:", responseText);
+          throw new Error("Invalid JSON response from server");
+        }
+      } catch (textError) {
+        console.error("Error reading response:", textError);
+        throw new Error(`Could not read server response: ${textError.message}`);
+      }
+      
+      if (!response.ok) {
+        console.error("Error response:", result);
+        throw new Error(result?.error || `Server error: ${response.status}`);
+      }
+      
+      alert('Your admin account has been approved successfully! You can now manage sessions.');
+      
+      // Check database schema again to refresh permissions
+      await checkDatabaseSchema();
+    } catch (error) {
+      console.error('Error approving admin account:', error);
+      alert(`Error approving account: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -766,6 +907,13 @@ Refreshing data...`);
           <p className="text-gray-400">Manage coach schedules and generate training sessions</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
+          <Button 
+            onClick={approveAdminSelf} 
+            className="bg-green-600 hover:bg-green-700 text-white"
+            disabled={loading}
+          >
+            Approve Admin Account
+          </Button>
           <Button 
             onClick={initializeSchedules} 
             className="bg-blue-600 hover:bg-blue-700 text-white"

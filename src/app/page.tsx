@@ -16,12 +16,10 @@ import { createClient } from "../utils/supabase/server";
 import Image from "next/image";
 import { Client3DSection } from "@/components/Client3DSection";
 import Link from "next/link";
+import { fetchUserData } from "@/app/actions/auth";
 
 export default async function Home() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await fetchUserData();
 
   // No automatic redirects, let user navigate where they want
 

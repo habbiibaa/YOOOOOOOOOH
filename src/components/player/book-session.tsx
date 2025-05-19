@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "../../utils/supabase/client";
 import { Calendar, Clock, User, MapPin, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,9 +68,9 @@ export default function BookSession({ onBookingComplete }: BookSessionProps) {
   const [filteredTimeSlots, setFilteredTimeSlots] = useState<TimeSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCoach, setSelectedCoach] = useState<string | null>(null);
-  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState<string>("all");
+  const [selectedDate, setSelectedDate] = useState<string>("all");
+  const [selectedTime, setSelectedTime] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
@@ -167,67 +167,58 @@ export default function BookSession({ onBookingComplete }: BookSessionProps) {
   }, [supabase]);
 
   // Filter time slots based on selected criteria
-  useEffect(() => {
-    let filtered = [...timeSlots];
-
-    if (selectedCoach) {
-      filtered = filtered.filter((slot) => slot.coach_id === selectedCoach);
-    }
-
-    if (selectedBranch) {
-      filtered = filtered.filter((slot) => slot.branch_id === selectedBranch);
-    }
-
-    if (selectedDate) {
-      filtered = filtered.filter((slot) => slot.session_date === selectedDate);
-    }
-
-    if (selectedTime) {
-      // Filter by time range (e.g., morning, afternoon, evening)
-      const [hour] = selectedTime.split(":").map(Number);
-      if (selectedTime === "morning") {
-        filtered = filtered.filter((slot) => {
-          const [slotHour] = slot.start_time.split(":").map(Number);
-          return slotHour >= 6 && slotHour < 12;
-        });
-      } else if (selectedTime === "afternoon") {
-        filtered = filtered.filter((slot) => {
-          const [slotHour] = slot.start_time.split(":").map(Number);
-          return slotHour >= 12 && slotHour < 17;
-        });
-      } else if (selectedTime === "evening") {
-        filtered = filtered.filter((slot) => {
-          const [slotHour] = slot.start_time.split(":").map(Number);
-          return slotHour >= 17 && slotHour < 22;
-        });
-      } else {
-        // Specific time
-        filtered = filtered.filter((slot) => slot.start_time === selectedTime);
+  const filteredSessions = useMemo(() => {
+    return timeSlots.filter((session) => {
+      // Coach filter
+      if (selectedCoach && session.coach_id !== selectedCoach) {
+        return false;
       }
-    }
 
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((slot) => {
-        const coach = coaches.find((c) => c.id === slot.coach_id);
-        return (
-          coach?.name.toLowerCase().includes(query) ||
-          coach?.specialization.toLowerCase().includes(query) ||
-          slot.branch_name.toLowerCase().includes(query)
-        );
-      });
-    }
+      // Branch filter
+      if (selectedBranch !== "all" && session.branch_id !== selectedBranch) {
+        return false;
+      }
 
-    setFilteredTimeSlots(filtered);
-  }, [
-    timeSlots,
-    selectedCoach,
-    selectedBranch,
-    selectedDate,
-    selectedTime,
-    searchQuery,
-    coaches,
-  ]);
+      // Date filter
+      if (selectedDate !== "all" && session.session_date !== selectedDate) {
+        return false;
+      }
+
+      // Time filter
+      if (selectedTime !== "all") {
+        const [hour] = session.start_time.split(":").map(Number);
+        
+        if (selectedTime === "morning" && (hour < 6 || hour >= 12)) {
+          return false;
+        }
+        if (selectedTime === "afternoon" && (hour < 12 || hour >= 17)) {
+          return false;
+        }
+        if (selectedTime === "evening" && (hour < 17 || hour >= 22)) {
+          return false;
+        }
+        
+        // For specific time selection
+        if (!["morning", "afternoon", "evening"].includes(selectedTime) && 
+            session.start_time !== selectedTime) {
+          return false;
+        }
+      }
+
+      // Search query
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const coachName = coaches.find((c) => c.id === session.coach_id)?.name.toLowerCase() || "";
+        const branchName = session.branch_name.toLowerCase();
+        
+        if (!coachName.includes(query) && !branchName.includes(query)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [timeSlots, selectedCoach, selectedBranch, selectedDate, selectedTime, searchQuery, coaches]);
 
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(":").map(Number);
@@ -513,7 +504,7 @@ export default function BookSession({ onBookingComplete }: BookSessionProps) {
                 <SelectValue placeholder="Select a branch" />
               </SelectTrigger>
               <SelectContent className="bg-gray-800 border-gray-700 text-white">
-                <SelectItem value="">All Branches</SelectItem>
+                <SelectItem value="all">All Branches</SelectItem>
                 {branches.map((branch) => (
                   <SelectItem key={branch.id} value={branch.id}>
                     {branch.name}
@@ -538,7 +529,7 @@ export default function BookSession({ onBookingComplete }: BookSessionProps) {
                 <SelectValue placeholder="Select a date" />
               </SelectTrigger>
               <SelectContent className="bg-gray-800 border-gray-700 text-white max-h-60">
-                <SelectItem value="">All Dates</SelectItem>
+                <SelectItem value="all">All Dates</SelectItem>
                 {getUniqueDates().map((date) => (
                   <SelectItem key={date} value={date}>
                     {formatDate(date)}
@@ -563,7 +554,7 @@ export default function BookSession({ onBookingComplete }: BookSessionProps) {
                 <SelectValue placeholder="Select a time" />
               </SelectTrigger>
               <SelectContent className="bg-gray-800 border-gray-700 text-white max-h-60">
-                <SelectItem value="">All Times</SelectItem>
+                <SelectItem value="all">All Times</SelectItem>
                 <SelectItem value="morning">Morning (6AM - 12PM)</SelectItem>
                 <SelectItem value="afternoon">
                   Afternoon (12PM - 5PM)
@@ -599,7 +590,7 @@ export default function BookSession({ onBookingComplete }: BookSessionProps) {
       <div className="md:col-span-2">
         <div className="mb-6">
           <h2 className="text-2xl font-bold text-white">
-            Available Sessions {filteredTimeSlots.length > 0 && `(${filteredTimeSlots.length})`}
+            Available Sessions {filteredSessions.length > 0 && `(${filteredSessions.length})`}
           </h2>
           <p className="text-gray-400">
             Select a session to book. All sessions are 45 minutes.
@@ -610,9 +601,9 @@ export default function BookSession({ onBookingComplete }: BookSessionProps) {
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-500"></div>
           </div>
-        ) : filteredTimeSlots.length > 0 ? (
+        ) : filteredSessions.length > 0 ? (
           <div className="grid grid-cols-1 gap-4">
-            {filteredTimeSlots.map((slot) => {
+            {filteredSessions.map((slot) => {
               const coach = coaches.find((c) => c.id === slot.coach_id);
               return (
                 <div

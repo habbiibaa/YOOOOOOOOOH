@@ -35,13 +35,30 @@ export default async function BookSessionPage() {
   // Fetch coaches
   const { data: coaches, error: coachError } = await supabase
     .from("users")
-    .select("id, full_name")
+    .select(`
+      id, 
+      full_name,
+      coach_schedules (
+        id,
+        day_of_week,
+        start_time,
+        end_time,
+        session_duration
+      )
+    `)
     .eq("role", "coach")
     .eq("approved", true);
 
   if (coachError) {
     console.error("Error fetching coaches:", coachError);
   }
+
+  // Format coaches with their schedules
+  const formattedCoaches = coaches?.map(coach => ({
+    id: coach.id,
+    full_name: coach.full_name,
+    schedules: coach.coach_schedules || []
+  })) || [];
 
   // Fetch branches
   const { data: branches, error: branchError } = await supabase
@@ -69,7 +86,8 @@ export default async function BookSessionPage() {
       level,
       type,
       price,
-      status
+      status,
+      court
     `)
     .eq("status", "available")
     .order("day_of_week", { ascending: true })
@@ -95,15 +113,19 @@ export default async function BookSessionPage() {
     level: session.level,
     type: session.type,
     price: session.price || 0,
-    status: session.status
+    status: session.status,
+    court: session.court || ""
   })) || [];
+
+  const rbsSessions = formattedSessions.filter(s => s.branch_id === "fbd9510e-14ab-4a6a-a129-e0430683ecaf");
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">Book a Session</h1>
       <BookSession 
         sessions={formattedSessions} 
-        coaches={coaches || []} 
+        rbsSessions={rbsSessions}
+        coaches={formattedCoaches} 
         branches={branches || []} 
         userId={user.id}
       />

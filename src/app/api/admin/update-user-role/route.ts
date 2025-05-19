@@ -1,4 +1,4 @@
-import { createClient } from "../../../../supabase/server";
+import { createClient } from "../../../../utils/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -88,14 +88,14 @@ export async function POST(request: NextRequest) {
       // Check if player record exists
       const { data: existingPlayer } = await supabase
         .from("players")
-        .select("id")
-        .eq("id", userId)
+        .select("user_id")
+        .eq("user_id", userId)
         .maybeSingle();
 
       if (!existingPlayer) {
         // Create player record
         await supabase.from("players").insert({
-          id: userId,
+          user_id: userId,
           skill_level: "Beginner",
           years_playing: 0,
           created_at: new Date().toISOString(),

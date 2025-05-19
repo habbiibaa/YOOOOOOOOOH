@@ -1,16 +1,33 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createClient } from "@/utils/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ExclamationTriangle, CalendarClock, Clock } from "lucide-react";
+import { CalendarClock, Clock, AlertTriangle } from "lucide-react";
 import PaymentForm from "./payment-form";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface BookingModalProps {
-  open: boolean;
-  onClose: () => void;
-  session: any;
+  session: {
+    id: string;
+    coach_id: string;
+    coach_name: string;
+    branch_id: string;
+    branch_name: string;
+    session_date: string;
+    start_time: string;
+    end_time: string;
+    session_duration: number;
+    court: string;
+    level: string;
+    price: number;
+  };
   userId: string;
+  onClose: () => void;
+  onSuccess: () => void;
 }
 
 enum BookingStep {
@@ -19,41 +36,84 @@ enum BookingStep {
   SUCCESS
 }
 
-export default function BookingModal({ open, onClose, session, userId }: BookingModalProps) {
+export default function BookingModal({ session, userId, onClose, onSuccess }: BookingModalProps) {
   const router = useRouter();
   const [step, setStep] = useState<BookingStep>(BookingStep.CONFIRMATION);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentData, setPaymentData] = useState<any>(null);
-  
+  const [selectedLevel, setSelectedLevel] = useState<string>(session.level);
+  const [levels, setLevels] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchLevels();
+  }, []);
+
+  const fetchLevels = async () => {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('training_levels')
+        .select('*')
+        .order('level_number');
+
+      if (error) throw error;
+      setLevels(data || []);
+    } catch (error) {
+      console.error('Error fetching levels:', error);
+      toast.error('Failed to load training levels');
+    }
+  };
+
   const handleBookSession = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await fetch('/api/booking/reserve-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sessionId: session.id,
-          userId,
-          paymentAmount: session.price || 0,
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to reserve session");
+      const supabase = createClient();
+
+      // First, check if the session is still available
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('coach_sessions')
+        .select('status')
+        .eq('id', session.id)
+        .single();
+
+      if (sessionError) throw sessionError;
+
+      if (sessionData.status !== 'available') {
+        toast.error('This session is no longer available');
+        onClose();
+        return;
       }
-      
-      setPaymentData(data);
-      setStep(BookingStep.PAYMENT);
+
+      // Create the booking
+      const { error: bookingError } = await supabase
+        .from('bookings')
+        .insert({
+          session_id: session.id,
+          user_id: userId,
+          status: 'pending',
+          level: selectedLevel,
+          price: session.price
+        });
+
+      if (bookingError) throw bookingError;
+
+      // Update session status
+      const { error: updateError } = await supabase
+        .from('coach_sessions')
+        .update({ status: 'booked' })
+        .eq('id', session.id);
+
+      if (updateError) throw updateError;
+
+      toast.success('Session booked successfully!');
+      onSuccess();
+      router.push('/dashboard/player');
     } catch (error) {
-      console.error("Booking error:", error);
-      setError(error instanceof Error ? error.message : "Failed to reserve session");
+      console.error('Error booking session:', error);
+      toast.error('Failed to book session');
     } finally {
       setIsLoading(false);
     }
@@ -62,13 +122,17 @@ export default function BookingModal({ open, onClose, session, userId }: Booking
   const handlePaymentSuccess = (data: any) => {
     // Navigate to success step and refresh coach sessions
     setStep(BookingStep.SUCCESS);
-    router.refresh(); // Refresh the page data to update session availability
+    toast.success("Booking confirmed! Your session has been reserved.");
+    if (onSuccess) {
+      onSuccess();
+    }
   };
   
   const handlePaymentCancel = () => {
     // Return to confirmation step and reset payment data
     setPaymentData(null);
     setStep(BookingStep.CONFIRMATION);
+    toast.info("Payment cancelled. Your session was not reserved.");
     router.refresh(); // Refresh the page data to update session availability
   };
   
@@ -86,54 +150,87 @@ export default function BookingModal({ open, onClose, session, userId }: Booking
         return (
           <>
             <DialogHeader>
-              <DialogTitle>Book Session</DialogTitle>
+              <DialogTitle>Book Training Session</DialogTitle>
             </DialogHeader>
-            <div className="p-4 space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <ExclamationTriangle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              
-              <div className="border rounded-lg p-4 space-y-2">
-                <div className="font-medium">{session.coach_name || 'Coach'}</div>
-                <div className="flex items-center text-sm text-gray-500">
-                  <CalendarClock className="h-4 w-4 mr-2" />
-                  <span>{session.day_of_week || 'Day'}, {session.start_time || '--:--'} - {session.end_time || '--:--'}</span>
-                </div>
-                <div className="text-sm text-gray-500">{session.branch_name || 'Branch'}</div>
-                <div className="flex items-center text-sm text-gray-500">
-                  <Clock className="h-4 w-4 mr-2" />
-                  <span>{session.session_duration || 60} minutes</span>
-                </div>
-                
-                <div className="flex justify-between items-center pt-2 mt-2 border-t">
-                  <span className="font-medium">Total:</span>
-                  <span className="font-bold">${session.price || '0.00'}</span>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="coach" className="text-right">
+                  Coach
+                </Label>
+                <div className="col-span-3">
+                  <p className="text-sm">{session.coach_name}</p>
                 </div>
               </div>
-              
-              <div className="text-sm text-gray-500">
-                To secure this session, you'll need to complete the payment process. The slot will be temporarily reserved for you during payment.
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="location" className="text-right">
+                  Location
+                </Label>
+                <div className="col-span-3">
+                  <p className="text-sm">{session.branch_name}</p>
+                </div>
               </div>
-              
-              <div className="flex space-x-2 pt-2">
-                <Button 
-                  variant="outline" 
-                  className="flex-1"
-                  onClick={handleCloseModal}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  className="flex-1"
-                  onClick={handleBookSession}
-                  disabled={isLoading}
-                >
-                  {isLoading ? "Processing..." : "Continue to Payment"}
-                </Button>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="date" className="text-right">
+                  Date
+                </Label>
+                <div className="col-span-3">
+                  <p className="text-sm">{new Date(session.session_date).toLocaleDateString()}</p>
+                </div>
               </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="time" className="text-right">
+                  Time
+                </Label>
+                <div className="col-span-3">
+                  <p className="text-sm">
+                    {new Date(`2000-01-01T${session.start_time}`).toLocaleTimeString([], { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })} - {new Date(`2000-01-01T${session.end_time}`).toLocaleTimeString([], { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="level" className="text-right">
+                  Level
+                </Label>
+                <div className="col-span-3">
+                  <Select
+                    value={selectedLevel}
+                    onValueChange={setSelectedLevel}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {levels.map((level) => (
+                        <SelectItem key={level.id} value={level.level_number.toString()}>
+                          {level.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="price" className="text-right">
+                  Price
+                </Label>
+                <div className="col-span-3">
+                  <p className="text-sm font-medium">EGP {session.price}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-4">
+              <Button variant="outline" onClick={handleCloseModal}>
+                Cancel
+              </Button>
+              <Button onClick={handleBookSession} disabled={isLoading}>
+                {isLoading ? 'Booking...' : 'Confirm Booking'}
+              </Button>
             </div>
           </>
         );
@@ -196,7 +293,7 @@ export default function BookingModal({ open, onClose, session, userId }: Booking
   };
   
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleCloseModal()}>
+    <Dialog open={true} onOpenChange={(isOpen) => !isOpen && handleCloseModal()}>
       <DialogContent className={step === BookingStep.PAYMENT ? "sm:max-w-md p-0" : "sm:max-w-md"}>
         {renderStepContent()}
       </DialogContent>

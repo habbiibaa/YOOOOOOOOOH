@@ -3,290 +3,314 @@
 import { useState } from "react";
 import { insertRoyalBritishSchedules } from "@/app/actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircleIcon, XCircleIcon, AlertCircleIcon, InfoIcon } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { CheckCircle, AlertCircle, Info, Upload, Clock } from "lucide-react";
+import { toast } from "sonner";
+import Link from "next/link";
+import DashboardNavbar from "@/components/dashboard-navbar";
 
 export default function ImportRoyalBritishSchedulesPage() {
   const [isLoading, setIsLoading] = useState(false);
-  const [results, setResults] = useState<any>(null);
+  const [activeDay, setActiveDay] = useState("Tuesday");
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   
   const handleImportSchedules = async () => {
     setIsLoading(true);
     try {
       const result = await insertRoyalBritishSchedules();
-      setResults(result);
+      
+      if (result.success) {
+        toast.success("Royal British schedules imported successfully");
+        if (result.results) {
+          toast.info(`Created ${result.results.created} sessions, updated ${result.results.updated}`);
+        }
+      } else {
+        toast.error(result.error || "Failed to import schedules");
+      }
     } catch (error) {
       console.error("Error importing schedules:", error);
-      setResults({
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred"
-      });
+      toast.error("An unexpected error occurred");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Days for the tab navigation
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
   return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-2xl font-bold mb-6">Royal British School Schedules</h1>
-      
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>Import Royal British School Schedules</CardTitle>
-          <CardDescription>
-            This will import the exact schedules shown in the timetable for the Royal British School branch.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center mb-4 p-3 bg-blue-50 rounded-md">
-            <InfoIcon className="h-5 w-5 mr-2 text-blue-500" />
-            <p className="text-sm text-gray-700">
-              This will create sessions for the following coaches at Royal British School:
-              Ahmed Fakhry, Ahmed Mahrous, Alaa Taha, Ahmed Magdy, Omar Zaki, and Abdullah.
-            </p>
-          </div>
-          
-          <Alert variant="warning" className="mb-4">
-            <AlertCircleIcon className="h-4 w-4 mr-2" />
-            <AlertTitle>Important</AlertTitle>
-            <AlertDescription>
-              Make sure all coaches have accounts in the system before importing schedules.
-              If any coach is missing, the import will fail.
-            </AlertDescription>
-          </Alert>
-          
-          <Button 
-            onClick={handleImportSchedules} 
-            disabled={isLoading}
-            className="w-full"
-          >
-            {isLoading ? "Importing Schedules..." : "Import Royal British School Schedules"}
-          </Button>
-        </CardContent>
-      </Card>
-      
-      {results && (
-        <Alert 
-          variant={results.success === true ? "default" : "destructive"}
-          className="mb-8"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            {results.success ? 
-              <CheckCircleIcon className="h-5 w-5 text-green-500" /> : 
-              <XCircleIcon className="h-5 w-5 text-red-500" />
-            }
-            <AlertTitle>{results.success ? "Import Successful" : "Import Failed"}</AlertTitle>
-          </div>
-          <AlertDescription>
-            {results.success ? (
-              <div className="space-y-2">
-                <p>{results.message}</p>
-                {results.results && (
-                  <div className="bg-gray-50 p-3 rounded-md mt-2">
-                    <p>Total: {results.results.total}</p>
-                    <p>Created: {results.results.created}</p>
-                    <p>Updated: {results.results.updated}</p>
-                    <p>Failed: {results.results.failed}</p>
+    <>
+      <DashboardNavbar />
+      <div className="container py-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Import Royal British School Schedules</h1>
+          <Link href="/dashboard/admin">
+            <Button variant="outline">Back to Admin</Button>
+          </Link>
+        </div>
+        
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Schedule Import Settings</CardTitle>
+            <CardDescription>
+              This will import the preset schedules for the Royal British School branch
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col space-y-4">
+              <div className="flex items-center gap-2 p-4 bg-blue-50 text-blue-800 rounded-md">
+                <Info className="h-5 w-5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium">Important Information</p>
+                  <p className="text-sm mb-2">
+                    This will create schedules for the following coaches at Royal British School:
+                    Ahmed Fakhry, Ahmed Mahrous, Alaa Taha, Abdelrahman Dahy, Omar Zaki, and Ahmed Maher.
+                    Make sure all coaches have accounts in the system before proceeding.
+                  </p>
+                  <p className="text-sm mb-1">Session counts per day:</p>
+                  <ul className="text-xs list-disc pl-5 mb-2">
+                    <li>Sunday, Monday, Tuesday: 7 sessions per coach</li>
+                    <li>Wednesday, Thursday: 8 sessions per coach</li>
+                    <li>Friday, Saturday: 15 sessions per coach</li>
+                  </ul>
+                  <p className="text-sm font-medium mb-1">Level Color Coding:</p>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="px-2 py-1 rounded bg-blue-100">Level 1</span>
+                    <span className="px-2 py-1 rounded bg-green-100">Level 2</span>
+                    <span className="px-2 py-1 rounded bg-pink-100">Level 3</span>
+                    <span className="px-2 py-1 rounded bg-purple-100">Level 4</span>
+                    <span className="px-2 py-1 rounded bg-red-100">Level 5</span>
                   </div>
-                )}
+                </div>
               </div>
-            ) : (
-              <p className="text-red-500 font-medium">{results.error}</p>
-            )}
-            
-            {results.results?.errors && results.results.errors.length > 0 && (
-              <div className="mt-4 bg-red-50 p-3 rounded-md max-h-40 overflow-y-auto">
-                <p className="font-medium">Errors:</p>
-                <ul className="list-disc ml-6 mt-1">
-                  {results.results.errors.map((error: string, index: number) => (
-                    <li key={index} className="text-sm">{error}</li>
+              
+              <div className="flex items-center gap-2 p-4 bg-amber-50 text-amber-800 rounded-md">
+                <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium">Warning</p>
+                  <p className="text-sm">
+                    This will replace all existing schedule data for the Royal British School branch.
+                    Sessions will be generated for the next 4 weeks based on these schedules.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button 
+              onClick={handleImportSchedules} 
+              disabled={isLoading}
+              className="w-full"
+            >
+              {isLoading ? (
+                <>
+                  <div className="animate-spin h-4 w-4 mr-2 border-2 border-white/60 border-t-white rounded-full" />
+                  Importing Schedules...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Import Royal British School Schedules
+                </>
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Schedule Preview</CardTitle>
+            <CardDescription>
+              This shows the weekly schedule that will be imported for Royal British School
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs 
+              defaultValue={activeDay} 
+              onValueChange={setActiveDay}
+              className="w-full"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <TabsList>
+                  {days.map(day => (
+                    <TabsTrigger key={day} value={day}>{day}</TabsTrigger>
                   ))}
-                </ul>
+                </TabsList>
               </div>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>Royal British School Schedule Preview</CardTitle>
-          <CardDescription>
-            Preview of the weekly schedule that will be imported for Royal British School
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="Tuesday">
-            <TabsList className="mb-4">
-              {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(day => (
-                <TabsTrigger key={day} value={day}>{day}</TabsTrigger>
-              ))}
-            </TabsList>
-            
-            <TabsContent value="Sunday">
-              <ScheduleTable day="Sunday" data={[
-                { time: "3:30", court1: { coach: "Ahmed Fakhry", student: "ECA" }, court2: { coach: "Abdullah", student: "" } },
-                { time: "4:30", court1: { coach: "Ahmed Fakhry", student: "Rayan (individual)" }, court2: { coach: "Abdullah", student: "Tamem (individual)" } },
-                { time: "5:15", court1: { coach: "Ahmed Fakhry", student: "Mayada Emad (individual)" }, court2: { coach: "Abdullah", student: "Omar sherif (individual)" } },
-                { time: "6:00", court1: { coach: "Ahmed Fakhry", student: "Dalida(individual)" }, court2: { coach: "Abdullah", student: "Mohamed reda el basuiny (individual)" } },
-                { time: "6:45", court1: { coach: "Ahmed Fakhry", student: "Lara omar(individual)" }, court2: { coach: "Abdullah", student: "elissa mark (individual)" } },
-                { time: "7:30", court1: { coach: "Ahmed Fakhry", student: "aly ahmed( individual )" }, court2: { coach: "Abdullah", student: "Cady mohamed(individual)" } },
-                { time: "8:15", court1: { coach: "Ahmed Fakhry", student: "Aly mostafa(individual)" }, court2: { coach: "Abdullah", student: "youssef Adham(individual)" } },
-                { time: "9:00", court1: { coach: "Ahmed Fakhry", student: "" }, court2: { coach: "Abdullah", student: "" } }
-              ]} />
-            </TabsContent>
+              
+              <TabsContent value="Sunday">
+                <ScheduleTable day="Sunday" />
+              </TabsContent>
 
-            <TabsContent value="Monday">
-              <ScheduleTable day="Monday" data={[
-                { time: "3:30", court1: { coach: "Alaa Taha", student: "ECA" }, court2: { coach: "Ahmed Magdy", student: "ECA" } },
-                { time: "4:30", court1: { coach: "Alaa Taha", student: "Layla Mohamed Sadek (Individual)" }, court2: { coach: "Ahmed Magdy", student: "Selim el khamiry(individual) Not Confirmed" } },
-                { time: "5:15", court1: { coach: "Alaa Taha", student: "Talia mohamed (individual)" }, court2: { coach: "Ahmed Magdy", student: "Camellia Gheriany (Individual)" } },
-                { time: "6:00", court1: { coach: "Alaa Taha", student: "Carla mahmoud (individual)" }, court2: { coach: "Ahmed Magdy", student: "Mariam ahmed (individual)" } },
-                { time: "6:45", court1: { coach: "Alaa Taha", student: "Aly mostafa(individual)" }, court2: { coach: "Ahmed Magdy", student: "layan(individual)" } },
-                { time: "7:30", court1: { coach: "Alaa Taha", student: "Omar sherif salem (individual)" }, court2: { coach: "Ahmed Magdy", student: "Yasin Mohamed Mamdouh (from 28/04)" } },
-                { time: "8:15", court1: { coach: "Alaa Taha", student: "Marwa fahmy (individual)" }, court2: { coach: "Ahmed Magdy", student: "Adam merai(individual)" } },
-                { time: "9:00", court1: { coach: "Alaa Taha", student: "Hamza(individual)" }, court2: { coach: "Ahmed Magdy", student: "Malek Ahmed Tarek (from 01/05)" } }
-              ]} />
-            </TabsContent>
-            
-            <TabsContent value="Tuesday">
-              <ScheduleTable day="Tuesday" data={[
-                { time: "3:30", court1: { coach: "Ahmed Fakhry", student: "" }, court2: { coach: "Ahmed Mahrous", student: "ECA" } },
-                { time: "4:30", court1: { coach: "Ahmed Fakhry", student: "Rayan" }, court2: { coach: "Ahmed Mahrous", student: "Tamem" } },
-                { time: "5:15", court1: { coach: "Ahmed Fakhry", student: "Mayada emad" }, court2: { coach: "Ahmed Mahrous", student: "Mariam sherif" } },
-                { time: "6:00", court1: { coach: "Ahmed Fakhry", student: "Dalida" }, court2: { coach: "Ahmed Mahrous", student: "elissa mark" } },
-                { time: "6:45", court1: { coach: "Ahmed Fakhry", student: "Lara omar" }, court2: { coach: "Ahmed Mahrous", student: "Laila ashraf" } },
-                { time: "7:30", court1: { coach: "Ahmed Fakhry", student: "Aly Ahmed" }, court2: { coach: "Ahmed Mahrous", student: "Marwa fahmy" } },
-                { time: "8:15", court1: { coach: "Ahmed Fakhry", student: "Farida amr" }, court2: { coach: "Ahmed Mahrous", student: "Cady mohamed" } },
-                { time: "9:00", court1: { coach: "Ahmed Fakhry", student: "" }, court2: { coach: "Ahmed Mahrous", student: "" } }
-              ]} />
-            </TabsContent>
-            
-            <TabsContent value="Wednesday">
-              <ScheduleTable day="Wednesday" data={[
-                { time: "3:30", court1: { coach: "Abdullah", student: "" }, court2: { coach: "Alaa Taha", student: "Aly Mostafa" } },
-                { time: "4:15", court1: { coach: "Abdullah", student: "layan" }, court2: { coach: "Alaa Taha", student: "Taher and Ameen" } },
-                { time: "5:00", court1: { coach: "Abdullah", student: "Camellia Gheriany" }, court2: { coach: "Alaa Taha", student: "Talia mohamed" } },
-                { time: "5:45", court1: { coach: "Abdullah", student: "Assessment - Yehia and aly" }, court2: { coach: "Alaa Taha", student: "Selim el khamry" } },
-                { time: "6:30", court1: { coach: "Abdullah", student: "Aly karim" }, court2: { coach: "Alaa Taha", student: "Omar sherif" } },
-                { time: "7:15", court1: { coach: "Abdullah", student: "Hachem" }, court2: { coach: "Alaa Taha", student: "Gasser" } },
-                { time: "8:00", court1: { coach: "Abdullah", student: "Youssef adham" }, court2: { coach: "Alaa Taha", student: "Mohamed reda" } },
-                { time: "8:45", court1: { coach: "Abdullah", student: "" }, court2: { coach: "Alaa Taha", student: "" } }
-              ]} />
-            </TabsContent>
-            
-            <TabsContent value="Thursday">
-              <ScheduleTable day="Thursday" data={[
-                { time: "3:30", court1: { coach: "Omar Zaki", student: "Yassin Mohamed" }, court2: { coach: "", student: "" } },
-                { time: "4:15", court1: { coach: "Omar Zaki", student: "Zaina El Ghazawy" }, court2: { coach: "", student: "" } },
-                { time: "5:00", court1: { coach: "Omar Zaki", student: "Marwa Fahmy" }, court2: { coach: "", student: "" } },
-                { time: "5:45", court1: { coach: "Omar Zaki", student: "Hachem" }, court2: { coach: "", student: "" } },
-                { time: "6:30", court1: { coach: "Omar Zaki", student: "Gasser" }, court2: { coach: "", student: "" } },
-                { time: "7:15", court1: { coach: "Omar Zaki", student: "Aisha yasser" }, court2: { coach: "", student: "" } },
-                { time: "8:00", court1: { coach: "Omar Zaki", student: "Icel mohamed" }, court2: { coach: "", student: "" } },
-                { time: "8:45", court1: { coach: "Omar Zaki", student: "Dema mohamed" }, court2: { coach: "", student: "" } }
-              ]} />
-            </TabsContent>
-            
-            <TabsContent value="Friday">
-              <ScheduleTable day="Friday" data={[
-                { time: "10:00", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "10:45", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "11:30", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "11:00", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "12:00", court1: { coach: "", student: "Prayer Time" }, court2: { coach: "", student: "Prayer Time" } },
-                { time: "1:30", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "2:15", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "3:00", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "3:45", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "4:30", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "5:15", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "6:00", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "", student: "" } },
-                { time: "6:45", court1: { coach: "", student: "" }, court2: { coach: "", student: "" } },
-                { time: "7:15", court1: { coach: "", student: "" }, court2: { coach: "", student: "" } },
-                { time: "8:00", court1: { coach: "", student: "" }, court2: { coach: "", student: "" } }
-              ]} />
-            </TabsContent>
-            
-            <TabsContent value="Saturday">
-              <ScheduleTable day="Saturday" data={[
-                { time: "10:00", court1: { coach: "Omar Zaki", student: "Taher and Ameen" }, court2: { coach: "Ahmed Mahrous", student: "" } },
-                { time: "10:45", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "Ahmed Mahrous", student: "Laila ashraf" } },
-                { time: "11:30", court1: { coach: "Omar Zaki", student: "Layla Mohamed" }, court2: { coach: "Ahmed Mahrous", student: "Mariam sherif" } },
-                { time: "12:15", court1: { coach: "Omar Zaki", student: "Hachem" }, court2: { coach: "Ahmed Mahrous", student: "Gasser" } },
-                { time: "1:00", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "Ahmed Mahrous", student: "Carla mahmoud" } },
-                { time: "1:45", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "Ahmed Mahrous", student: "Hamza" } },
-                { time: "2:30", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "Ahmed Mahrous", student: "Aly karim" } },
-                { time: "3:15", court1: { coach: "Omar Zaki", student: "Yehia and aly" }, court2: { coach: "Ahmed Mahrous", student: "Dema mohamed" } },
-                { time: "4:00", court1: { coach: "Omar Zaki", student: "Aisha yasser" }, court2: { coach: "Ahmed Mahrous", student: "Rayan" } },
-                { time: "4:45", court1: { coach: "Omar Zaki", student: "Mariam Ahmed" }, court2: { coach: "Ahmed Mahrous", student: "Tamem" } },
-                { time: "5:30", court1: { coach: "Omar Zaki", student: "Icel mohamed" }, court2: { coach: "Ahmed Mahrous", student: "Youssef" } },
-                { time: "6:15", court1: { coach: "Omar Zaki", student: "Zeina El Ghazawy" }, court2: { coach: "Ahmed Mahrous", student: "Younes" } },
-                { time: "7:00", court1: { coach: "Omar Zaki", student: "Selim el khamiry" }, court2: { coach: "Ahmed Mahrous", student: "Adam merai" } },
-                { time: "7:45", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "Ahmed Mahrous", student: "Farida amr" } },
-                { time: "8:30", court1: { coach: "Omar Zaki", student: "" }, court2: { coach: "Ahmed Mahrous", student: "" } }
-              ]} />
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-    </div>
+              <TabsContent value="Monday">
+                <ScheduleTable day="Monday" />
+              </TabsContent>
+              
+              <TabsContent value="Tuesday">
+                <ScheduleTable day="Tuesday" />
+              </TabsContent>
+              
+              <TabsContent value="Wednesday">
+                <ScheduleTable day="Wednesday" />
+              </TabsContent>
+              
+              <TabsContent value="Thursday">
+                <ScheduleTable day="Thursday" />
+              </TabsContent>
+              
+              <TabsContent value="Friday">
+                <ScheduleTable day="Friday" />
+              </TabsContent>
+              
+              <TabsContent value="Saturday">
+                <ScheduleTable day="Saturday" />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+          <CardFooter>
+            <div className="text-sm text-muted-foreground">
+              <p>* The schedules shown are the predefined RBS schedules</p>
+              <p>* These schedules will be imported exactly as shown</p>
+              <p>* After import, sessions will be available for booking in the system</p>
+            </div>
+          </CardFooter>
+        </Card>
+      </div>
+    </>
   );
 }
 
-// Helper component to display the schedule table
-interface ScheduleSlot {
-  coach: string;
-  student: string;
-}
+function ScheduleTable({ day }: { day: string }) {
+  const getScheduleData = (day: string) => {
+    switch(day) {
+      case "Sunday":
+        return [
+          { time: "3:30 PM", court1: "Ahmed Fakhry - ECA", court2: "Ahmed Maher - ECA", level: 1 },
+          { time: "4:30 PM", court1: "Ahmed Fakhry - Rayan", court2: "Ahmed Maher - Tamem", level: 2 },
+          { time: "5:15 PM", court1: "Ahmed Fakhry - Mayada Emad", court2: "Ahmed Maher - Omar sherif", level: 1 },
+          { time: "6:00 PM", court1: "Ahmed Fakhry - Dalida", court2: "Ahmed Maher - Mohamed reda el basuiny", level: 1 },
+          { time: "6:45 PM", court1: "Ahmed Fakhry - Lara omar", court2: "Ahmed Maher - elissa mark", level: 1 },
+          { time: "7:30 PM", court1: "Ahmed Fakhry - aly ahmed", court2: "Ahmed Maher - Cady mohamed", level: 1 },
+          { time: "8:15 PM", court1: "Ahmed Fakhry - Aly mostafa", court2: "Ahmed Maher - youssef Adham", level: 2 },
+          { time: "9:00 PM", court1: "", court2: "", level: 0 }
+        ];
+      case "Monday":
+        return [
+          { time: "3:30 PM", court1: "Alaa Taha - ECA", court2: "Abdelrahman Dahy - ECA", level: 1 },
+          { time: "4:30 PM", court1: "Alaa Taha - Layla Mohamed Sadek", court2: "Abdelrahman Dahy - Selim el khamiry", level: 1 },
+          { time: "5:15 PM", court1: "Alaa Taha - Talia mohamed", court2: "Abdelrahman Dahy - Camellia Gheriany", level: 1 },
+          { time: "6:00 PM", court1: "Alaa Taha - Carla mahmoud", court2: "Abdelrahman Dahy - Mariam ahmed", level: 1 },
+          { time: "6:45 PM", court1: "Alaa Taha - Aly mostafa", court2: "Abdelrahman Dahy - layan", level: 1 },
+          { time: "7:30 PM", court1: "Alaa Taha - Omar sherif salem", court2: "Abdelrahman Dahy - Yasin Mohamed Mamdouh", level: 2 },
+          { time: "8:15 PM", court1: "Alaa Taha - Marwa fahmy", court2: "Abdelrahman Dahy - Adam merai", level: 3 },
+          { time: "9:00 PM", court1: "Alaa Taha - Hamza", court2: "Abdelrahman Dahy - Malek Ahmed Tarek", level: 2 }
+        ];
+      case "Tuesday":
+        return [
+          { time: "3:30 PM", court1: "Ahmed Fakhry", court2: "Ahmed Mahrous - ECA", level: 1 },
+          { time: "4:30 PM", court1: "Ahmed Fakhry - Rayan", court2: "Ahmed Mahrous - Tamem", level: 2 },
+          { time: "5:15 PM", court1: "Ahmed Fakhry - Mayada emad", court2: "Ahmed Mahrous - Mariam sherif", level: 1 },
+          { time: "6:00 PM", court1: "Ahmed Fakhry - Dalida", court2: "Ahmed Mahrous - elissa mark", level: 1 },
+          { time: "6:45 PM", court1: "Ahmed Fakhry - Lara omar", court2: "Ahmed Mahrous - Laila ashraf", level: 1 },
+          { time: "7:30 PM", court1: "Ahmed Fakhry - Aly Ahmed", court2: "Ahmed Mahrous - Marwa fahmy", level: 3 },
+          { time: "8:15 PM", court1: "Ahmed Fakhry - Farida amr", court2: "Ahmed Mahrous - Cady mohamed", level: 1 },
+          { time: "9:00 PM", court1: "", court2: "", level: 0 }
+        ];
+      case "Wednesday":
+        return [
+          { time: "3:30 PM", court1: "Ahmed Maher", court2: "Alaa Taha - Aly Mostafa", level: 2 },
+          { time: "4:15 PM", court1: "Ahmed Maher - layan", court2: "Alaa Taha - Taher & Ameen Asser Yassin", level: 2 },
+          { time: "5:00 PM", court1: "Ahmed Maher - Camellia Gheriany", court2: "Alaa Taha - Talia mohamed", level: 1 },
+          { time: "5:45 PM", court1: "Ahmed Maher - Assessment (Yehia and aly)", court2: "Alaa Taha - Selim el khamry", level: 1 },
+          { time: "6:30 PM", court1: "Ahmed Maher - Aly karim", court2: "Alaa Taha - Omar sherif salem", level: 2 },
+          { time: "7:15 PM", court1: "Ahmed Maher - Hachem", court2: "Alaa Taha - Gasser", level: 1 },
+          { time: "8:00 PM", court1: "Ahmed Maher - Youssef adham", court2: "Alaa Taha - Mohamed reda el basiuony", level: 1 },
+          { time: "8:45 PM", court1: "", court2: "", level: 0 }
+        ];
+      case "Thursday":
+        return [
+          { time: "3:30 PM", court1: "Omar Zaki - Yassin Mohamed Mamdouh", court2: "", level: 1 },
+          { time: "4:15 PM", court1: "Omar Zaki - Zeina El Ghazawy", court2: "", level: 2 },
+          { time: "5:00 PM", court1: "Omar Zaki - Marwa Fahmy", court2: "", level: 3 },
+          { time: "5:45 PM", court1: "Omar Zaki - Hachem", court2: "", level: 1 },
+          { time: "6:30 PM", court1: "Omar Zaki - Gasser", court2: "", level: 1 },
+          { time: "7:15 PM", court1: "Omar Zaki - Aisha yasser", court2: "", level: 1 },
+          { time: "8:00 PM", court1: "Omar Zaki - Icel mohamed", court2: "", level: 2 },
+          { time: "8:45 PM", court1: "Omar Zaki - Dema mohamed", court2: "", level: 1 }
+        ];
+      case "Friday":
+        return [
+          { time: "10:00 AM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "10:45 AM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "11:30 AM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "12:15 PM", court1: "Prayer Time", court2: "Prayer Time", level: 0 },
+          { time: "1:30 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "2:15 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "3:00 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "3:45 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "4:30 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "5:15 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "6:00 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "6:45 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "7:30 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "8:15 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 },
+          { time: "9:00 PM", court1: "Omar Zaki", court2: "Ahmed Fakhry", level: 0 }
+        ];
+      case "Saturday":
+        return [
+          { time: "10:00 AM", court1: "Omar Zaki - Taher & Ameen Asser yassin", court2: "Ahmed Mahrous", level: 0 },
+          { time: "10:45 AM", court1: "Omar Zaki", court2: "Ahmed Mahrous - Laila ashraf", level: 0 },
+          { time: "11:30 AM", court1: "Omar Zaki - Layla Mohamed Sadek", court2: "Ahmed Mahrous - Mariam sherif", level: 0 },
+          { time: "12:15 PM", court1: "Omar Zaki - Hachem", court2: "Ahmed Mahrous - Gasser", level: 0 },
+          { time: "1:00 PM", court1: "Omar Zaki", court2: "Ahmed Mahrous - Carla mahmoud", level: 0 },
+          { time: "1:45 PM", court1: "Omar Zaki", court2: "Ahmed Mahrous - Hamza", level: 0 },
+          { time: "2:30 PM", court1: "Omar Zaki", court2: "Ahmed Mahrous - Aly karim", level: 0 },
+          { time: "3:15 PM", court1: "Omar Zaki - Yehia and aly", court2: "Ahmed Mahrous - Dema mohamed", level: 0 },
+          { time: "4:00 PM", court1: "Omar Zaki - Aisha yasser", court2: "Ahmed Mahrous - Rayan", level: 0 },
+          { time: "4:45 PM", court1: "Omar Zaki - Mariam Ahmed", court2: "Ahmed Mahrous - Tamem", level: 0 },
+          { time: "5:30 PM", court1: "Omar Zaki - Icel mohamed", court2: "Ahmed Mahrous - Student", level: 0 },
+          { time: "6:15 PM", court1: "Omar Zaki - Zeina El Ghazawy", court2: "Ahmed Mahrous - Student", level: 0 },
+          { time: "7:00 PM", court1: "Omar Zaki - Selim el khamiry", court2: "Ahmed Mahrous - Student", level: 0 },
+          { time: "7:45 PM", court1: "Omar Zaki", court2: "Ahmed Mahrous - Student", level: 0 },
+          { time: "8:30 PM", court1: "Omar Zaki", court2: "Ahmed Mahrous", level: 0 }
+        ];
+      default:
+        return [];
+    }
+  };
 
-interface ScheduleData {
-  time: string;
-  court1: ScheduleSlot;
-  court2: ScheduleSlot;
-}
+  const data = getScheduleData(day);
+  
+  // Function to get background color based on level
+  const getLevelColor = (level: number) => {
+    switch (level) {
+      case 1: return "bg-blue-100"; // Level 1 - Blue
+      case 2: return "bg-green-100"; // Level 2 - Green
+      case 3: return "bg-pink-100"; // Level 3 - Light Pink
+      case 4: return "bg-purple-100"; // Level 4 - Purple
+      case 5: return "bg-red-100"; // Level 5 - Light Red
+      default: return ""; // No color for level 0 (empty or special slots)
+    }
+  };
 
-function ScheduleTable({ day, data }: { day: string, data: ScheduleData[] }) {
   return (
-    <div className="border rounded-md overflow-hidden">
+    <div className="border rounded-md">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-24">Time</TableHead>
+            <TableHead className="w-[100px]">Time</TableHead>
             <TableHead>Court 1</TableHead>
             <TableHead>Court 2</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {data.map((slot, index) => (
-            <TableRow key={index}>
+            <TableRow key={`${day}-${index}`} className={getLevelColor(slot.level)}>
               <TableCell className="font-medium">{slot.time}</TableCell>
-              <TableCell>
-                {slot.court1.coach && (
-                  <div>
-                    <span className="text-xs font-semibold text-blue-600">{slot.court1.coach}</span>
-                    {slot.court1.student && (
-                      <p className="text-sm mt-1">{slot.court1.student}</p>
-                    )}
-                  </div>
-                )}
-              </TableCell>
-              <TableCell>
-                {slot.court2.coach && (
-                  <div>
-                    <span className="text-xs font-semibold text-blue-600">{slot.court2.coach}</span>
-                    {slot.court2.student && (
-                      <p className="text-sm mt-1">{slot.court2.student}</p>
-                    )}
-                  </div>
-                )}
-              </TableCell>
+              <TableCell>{slot.court1 || "—"}</TableCell>
+              <TableCell>{slot.court2 || "—"}</TableCell>
             </TableRow>
           ))}
         </TableBody>

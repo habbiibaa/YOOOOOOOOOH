@@ -31,9 +31,10 @@ export default function SignInPage() {
     setMessage(undefined); // Clear previous messages
 
     try {
+      // Use the standard sign-in function without CAPTCHA
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
-        password,
+        password
       });
 
       if (error) {
@@ -41,7 +42,7 @@ export default function SignInPage() {
         return;
       }
 
-      if (!data.user) {
+      if (!data || !data.user) {
         setMessage({ type: "error", text: "No user data returned" });
         return;
       }
@@ -62,7 +63,7 @@ export default function SignInPage() {
       // Handle approval status
       if (["coach", "admin"].includes(userData.role) && !userData.approved) {
         setMessage({
-          type: "warning",
+          type: "error",
           text: "Your account is pending approval from an administrator."
         });
         return;
@@ -83,11 +84,11 @@ export default function SignInPage() {
           router.replace("/dashboard/player");
         }
       }, 1000);
-    } catch (err) {
-      console.error("Sign in exception:", err);
+    } catch (error) {
+      console.error("Sign-in error:", error);
       setMessage({ 
         type: "error", 
-        text: "An unexpected error occurred. Please try again."
+        text: error instanceof Error ? error.message : "An unexpected error occurred" 
       });
     }
   }
@@ -99,9 +100,10 @@ export default function SignInPage() {
         <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-sm">
           <form
             className="flex flex-col space-y-6"
-            action={(formData) => {
-              startTransition(async () => {
-                await signInAction(formData);
+            action={() => {
+              startTransition(() => {
+                const form = new FormData(document.querySelector('form') as HTMLFormElement);
+                signInAction(form);
               });
             }}
           >

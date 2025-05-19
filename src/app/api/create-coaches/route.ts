@@ -46,8 +46,8 @@ export async function GET() {
         email: "omar.zaki@squashacademy.com",
       },
       {
-        name: "Hussein Amr",
-        email: "hussein.amr@squashacademy.com",
+        name: "Abdelrahman Dahy",
+        email: "abdelrahman.dahy@squashacademy.com",
       },
     ];
 

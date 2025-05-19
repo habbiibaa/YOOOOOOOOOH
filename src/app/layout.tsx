@@ -5,6 +5,7 @@ import Script from "next/script";
 import { TempoInit } from "@/components/tempo-init";
 import { ThemeProvider } from "@/components/theme-provider";
 import ImprovedAIChat from "@/components/improved-ai-chat";
+import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -32,6 +33,7 @@ export default function RootLayout({
           {children}
           <ImprovedAIChat />
           <TempoInit />
+          <Toaster richColors position="top-right" />
         </ThemeProvider>
       </body>
     </html>

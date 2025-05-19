@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, Clock, UserCheck, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 
 interface CoachApprovalRequest {
   id: string;
@@ -89,7 +90,18 @@ export default function PendingApprovals({ initialData = [], serverError }: Pend
         return;
       }
 
-      // Call the approve-coach API endpoint
+      // First update the user directly to ensure it works
+      const { error: directUpdateError } = await supabase
+        .from("users")
+        .update({ approved: true })
+        .eq("id", id);
+
+      if (directUpdateError) {
+        console.error("Direct update error:", directUpdateError);
+        throw new Error(directUpdateError.message);
+      }
+
+      // Then call the API endpoint for thorough processing
       const response = await fetch('/api/admin/approve-coach', {
         method: 'POST',
         headers: {
@@ -98,17 +110,20 @@ export default function PendingApprovals({ initialData = [], serverError }: Pend
         body: JSON.stringify({ coachId: id }),
       });
 
+      const data = await response.json();
+      
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.error || 'Failed to approve coach');
       }
 
       // Update local state on success
       setPendingRequests(pendingRequests.filter(req => req.id !== id));
+      toast.success("Coach approved successfully");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("Error approving coach:", errorMessage);
       setError(`Could not approve coach: ${errorMessage}`);
+      toast.error(`Approval failed: ${errorMessage}`);
     } finally {
       setLoadingId(null);
     }
@@ -132,17 +147,20 @@ export default function PendingApprovals({ initialData = [], serverError }: Pend
         body: JSON.stringify({ coachId: id }),
       });
 
+      const data = await response.json();
+      
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.error || 'Failed to reject coach');
       }
 
       // Update local state on success
       setPendingRequests(pendingRequests.filter(req => req.id !== id));
+      toast.success("Coach rejected successfully");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       console.error("Error rejecting coach:", errorMessage);
       setError(`Could not reject coach: ${errorMessage}`);
+      toast.error(`Rejection failed: ${errorMessage}`);
     } finally {
       setLoadingId(null);
     }
@@ -252,12 +270,14 @@ export default function PendingApprovals({ initialData = [], serverError }: Pend
                   disabled={loadingId === request.id}
                 >
                   {loadingId === request.id ? (
-                    <div className="animate-spin h-4 w-4 border-2 border-green-600 border-t-transparent rounded-full" />
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-green-600 mr-1"></div>
+                      <span>Approving...</span>
+                    </div>
                   ) : (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Approve
-                    </>
+                    <div className="flex items-center">
+                      <CheckCircle className="h-4 w-4 mr-1" /> Approve
+                    </div>
                   )}
                 </Button>
                 <Button 
@@ -268,12 +288,14 @@ export default function PendingApprovals({ initialData = [], serverError }: Pend
                   disabled={loadingId === request.id}
                 >
                   {loadingId === request.id ? (
-                    <div className="animate-spin h-4 w-4 border-2 border-red-600 border-t-transparent rounded-full" />
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-red-600 mr-1"></div>
+                      <span>Rejecting...</span>
+                    </div>
                   ) : (
-                    <>
-                      <XCircle className="h-4 w-4 mr-1" />
-                      Reject
-                    </>
+                    <div className="flex items-center">
+                      <XCircle className="h-4 w-4 mr-1" /> Reject
+                    </div>
                   )}
                 </Button>
               </div>

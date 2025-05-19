@@ -13,7 +13,8 @@ import {
   BookIcon,
   BarChart2Icon,
   SettingsIcon,
-  AlertCircleIcon
+  AlertCircleIcon,
+  Database
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PendingApprovalsWrapper from "@/components/admin/pending-approvals-wrapper";
@@ -220,6 +221,22 @@ export default async function AdminDashboard() {
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
                       Test database connection and table structure
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+
+              <Link href="/dashboard/admin/database-setup" className="h-full">
+                <Card className="h-full hover:bg-muted/50 transition-colors">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle>Database Setup</CardTitle>
+                      <Database className="h-5 w-5 text-emerald-500" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      Run database migrations, initialize coach schedules, and regenerate sessions
                     </p>
                   </CardContent>
                 </Card>

@@ -15,7 +15,13 @@ export default function TestPage() {
             Check your Supabase database after clicking to see if the user was created.
           </p>
           
-          <form action={createTestUser}>
+          <form action={async () => {
+            try {
+              await createTestUser();
+            } catch (error) {
+              console.error('Error creating test user:', error);
+            }
+          }}>
             <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white">
               Create Test User
             </Button>

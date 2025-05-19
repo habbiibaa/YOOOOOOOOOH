@@ -118,7 +118,7 @@ export default function SetupCoachesPage() {
       ]
     },
     {
-      name: "Hussien Amr",
+      name: "Abdelrahman Dahy",
       schedules: [
         { day: "Wednesday", startTime: "15:30", endTime: "21:30", court: "Court 1" },
       ]
@@ -312,7 +312,7 @@ export default function SetupCoachesPage() {
       "Alaa Taha": "bg-blue-100",
       "Ahmed Maher": "bg-green-100",
       "Omar Zaki": "bg-yellow-100",
-      "Hussien Amr": "bg-indigo-100",
+      "Abdelrahman Dahy": "bg-indigo-100",
       "C. Abdullah": "bg-rose-100"
     };
     

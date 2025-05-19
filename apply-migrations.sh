@@ -17,5 +17,11 @@ supabase db push --debug src/utils/supabase/migrations/20240930000001_update_pay
 echo "Applying coach management migration..."
 supabase db push --debug src/utils/supabase/migrations/20240930000002_update_coach_management.sql
 
+echo "Applying coach sessions table migration..."
+supabase db push --debug src/utils/supabase/migrations/20240930000003_recreate_coach_sessions_table.sql
+
 echo "Migrations completed successfully!"
-echo "Your database schema should now be in sync with your code implementation." 
+echo "Your database schema should now be in sync with your code implementation."
+echo ""
+echo "IMPORTANT: After applying these migrations, you need to regenerate coach sessions."
+echo "Please visit http://localhost:3000/dashboard/admin/regenerate-sessions as an admin user." 
