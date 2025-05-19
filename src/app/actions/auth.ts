@@ -52,8 +52,8 @@ export async function signOut() {
     }
     
     // Clear any local storage or cookies if needed
-    revalidatePath("/");
-    redirect("/auth/login");
+    revalidatePath("/", "layout");
+    return redirect("/");
   } catch (error) {
     console.error("Error during sign out:", error);
     return { error: "Failed to sign out" };

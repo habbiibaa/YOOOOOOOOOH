@@ -47,7 +47,11 @@ export default function UserProfile() {
     }, [])
 
     const handleSignOut = async () => {
-        await supabase.auth.signOut()
+        const { error } = await supabase.auth.signOut()
+        if (error) {
+          console.error('Error signing out:', error)
+          return
+        }
         router.push('/')
         router.refresh()
     }
